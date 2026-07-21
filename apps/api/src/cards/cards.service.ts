@@ -18,27 +18,23 @@ export class CardsService {
     private readonly whatsapp: WhatsAppService,
   ) {}
 
-  list(gameId?: string) {
+  list() {
     return this.prisma.card.findMany({
-      where: gameId ? { gameId } : undefined,
       include: {
         user: { select: { id: true, name: true, phone: true } },
-        game: { select: { id: true, name: true, status: true } },
         cells: { orderBy: [{ column: 'asc' }, { row: 'asc' }] },
       },
-      orderBy: [{ gameId: 'asc' }, { number: 'asc' }],
+      orderBy: { number: 'asc' },
     });
   }
 
-  catalog(gameId?: string) {
+  catalog() {
     return this.prisma.cardTemplate.findMany({
       include: {
         cells: { orderBy: [{ column: 'asc' }, { row: 'asc' }] },
-        cards: {
-          where: gameId ? { gameId } : { id: '__none__' },
+        card: {
           select: {
             id: true,
-            gameId: true,
             user: { select: { id: true, name: true } },
           },
         },
@@ -78,9 +74,8 @@ export class CardsService {
     const accessToken = generateAccessToken();
     const result = await this.prisma.$transaction(
       async (tx) => {
-        const [user, game, templates] = await Promise.all([
+        const [user, templates] = await Promise.all([
           tx.user.findUnique({ where: { id: dto.userId } }),
-          tx.game.findUnique({ where: { id: dto.gameId } }),
           tx.cardTemplate.findMany({
             where: { number: { in: dto.cardNumbers } },
             include: { cells: true },
@@ -89,12 +84,6 @@ export class CardsService {
         if (!user || user.role !== 'PLAYER' || !user.active || !user.phone) {
           throw new NotFoundException('Active player with phone not found');
         }
-        if (!game) throw new NotFoundException('Game not found');
-        if (game.status !== 'DRAFT') {
-          throw new ConflictException(
-            'Cards can only be assigned to draft games',
-          );
-        }
         if (templates.length !== dto.cardNumbers.length) {
           throw new ConflictException(
             'One or more card numbers do not exist in the master catalog',
@@ -102,7 +91,6 @@ export class CardsService {
         }
         const assigned = await tx.card.findMany({
           where: {
-            gameId: dto.gameId,
             templateId: { in: templates.map((card) => card.id) },
           },
           select: { number: true },
@@ -121,11 +109,10 @@ export class CardsService {
         for (const template of templates.sort((a, b) => a.number - b.number)) {
           const card = await tx.card.create({
             data: {
-              serial: `${game.id}-FECSUPOL-${String(template.number).padStart(3, '0')}`,
+              serial: `FECSUPOL-${String(template.number).padStart(3, '0')}`,
               number: template.number,
               templateId: template.id,
               userId: user.id,
-              gameId: game.id,
               cells: {
                 create: template.cells.map(
                   ({ row, column, number, isFree }) => ({
@@ -141,7 +128,7 @@ export class CardsService {
           });
           cards.push({ ...card, number: template.number });
         }
-        return { user, game, cards };
+        return { user, cards };
       },
       { isolationLevel: 'Serializable' },
     );
@@ -152,7 +139,6 @@ export class CardsService {
         name: result.user.name,
         phone: result.user.phone!,
       },
-      game: { id: result.game.id, name: result.game.name },
       cardNumbers: result.cards.map((card) => card.number),
       accessToken,
     });

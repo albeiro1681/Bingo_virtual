@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AdminTokenGuard } from '../auth/admin-token.guard';
 import { CardsService } from './cards.service';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
@@ -9,13 +9,13 @@ export class CardsController {
   constructor(private readonly cards: CardsService) {}
 
   @Get()
-  list(@Query('gameId') gameId?: string) {
-    return this.cards.list(gameId);
+  list() {
+    return this.cards.list();
   }
 
   @Get('catalog')
-  catalog(@Query('gameId') gameId?: string) {
-    return this.cards.catalog(gameId);
+  catalog() {
+    return this.cards.catalog();
   }
 
   @Post('catalog/initialize')

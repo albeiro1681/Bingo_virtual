@@ -32,14 +32,16 @@ export class DrawsService {
     const result = await this.withTransactionRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
-          const game = await tx.game.findUnique({
-            where: { id: gameId },
-            include: {
-              drawnBalls: { orderBy: { drawOrder: 'asc' } },
-              cards: { include: { cells: true } },
-              winningCells: true,
-            },
-          });
+          const [game, cards] = await Promise.all([
+            tx.game.findUnique({
+              where: { id: gameId },
+              include: {
+                drawnBalls: { orderBy: { drawOrder: 'asc' } },
+                winningCells: true,
+              },
+            }),
+            tx.card.findMany({ include: { cells: true } }),
+          ]);
           if (!game) throw new NotFoundException('Game not found');
           if (game.status !== 'ACTIVE') {
             throw new ConflictException(
@@ -68,7 +70,7 @@ export class DrawsService {
           });
 
           drawn.add(number);
-          const winningCards = game.cards.filter((card) =>
+          const winningCards = cards.filter((card) =>
             winningType === 'CUSTOM'
               ? matchesCustomPattern(card.cells, drawn, game.winningCells)
               : findWinningPatterns(card.cells, drawn).includes(winningType),
@@ -88,7 +90,11 @@ export class DrawsService {
           const updatedGame = finished
             ? await tx.game.update({
                 where: { id: gameId },
-                data: { status: 'FINISHED', finishedAt: new Date() },
+                data: {
+                  status: 'FINISHED',
+                  finishedAt: new Date(),
+                  endedManually: false,
+                },
                 select: {
                   id: true,
                   name: true,
@@ -96,6 +102,7 @@ export class DrawsService {
                   winningType: true,
                   startedAt: true,
                   finishedAt: true,
+                  endedManually: true,
                 },
               })
             : {
@@ -105,6 +112,7 @@ export class DrawsService {
                 winningType,
                 startedAt: game.startedAt,
                 finishedAt: game.finishedAt,
+                endedManually: game.endedManually,
               };
 
           const winners =

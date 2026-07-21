@@ -23,6 +23,11 @@ export class GamesController {
     return this.games.start(id);
   }
 
+  @Post(':id/finish')
+  finish(@Param('id') id: string) {
+    return this.games.finish(id);
+  }
+
   @Get(':id/winners')
   winners(@Param('id') id: string) {
     return this.games.winners(id);

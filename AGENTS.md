@@ -56,9 +56,11 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 
 - La organización propietaria de la aplicación es el Fondo de Empleados FECSUPOL.
 - Debe existir un catálogo global e inmutable de 120 cartones maestros, numerados del 1 al 120.
-- Los mismos cartones maestros se reutilizan entre sorteos; la asignación a un jugador pertenece a un sorteo concreto.
+- Cada cartón se asigna globalmente a un único jugador y conserva ese propietario para todos los sorteos presentes y futuros.
 - El administrador asigna los números de cartón escogidos por el comprador y no genera cartones nuevos durante la venta.
-- Un número de cartón no puede asignarse dos veces dentro del mismo sorteo.
+- Un número de cartón no puede asignarse a más de un jugador ni cambiarse entre sorteos.
+- La asignación se realiza antes de iniciar un sorteo y no depende de la creación de sorteos.
+- Un sorteo activo puede terminarse anticipadamente desde el panel administrativo mediante una acción con confirmación; después no se pueden extraer más balotas.
 - Un sorteo puede ganarse llenando el cartón o completando una figura 5x5 programada por el administrador.
 - Las figuras se evalúan exactamente en las coordenadas y orientación guardadas; no se aceptan rotaciones, reflejos ni desplazamientos.
 - Números sorteados fuera de la figura no invalidan un ganador.

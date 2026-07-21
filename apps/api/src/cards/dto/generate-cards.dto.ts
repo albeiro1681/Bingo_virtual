@@ -15,10 +15,6 @@ export class GenerateCardsDto {
   @MinLength(1)
   userId!: string;
 
-  @IsString()
-  @MinLength(1)
-  gameId!: string;
-
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(120)

@@ -19,7 +19,7 @@ type PlayerCard = {
     winningCells: Array<{ row: number; column: number }>
     drawnBalls: Ball[]
     winners: Winner[]
-  }
+  } | null
 }
 
 class HttpError extends Error {
@@ -81,7 +81,7 @@ function PlayerApp() {
     return () => { socket.disconnect() }
   }, [refresh, token])
 
-  const winningCards = useMemo(() => cards.filter((card) => card.game.winners.some((winner) => winner.cardId === card.id)), [cards])
+  const winningCards = useMemo(() => cards.filter((card) => card.game?.winners.some((winner) => winner.cardId === card.id)), [cards])
 
   const toggleMark = (cardId: string, cellId: string) => {
     setMarks((current) => {
@@ -101,15 +101,17 @@ function PlayerApp() {
     {winningCards.length > 0 && <div className="winner-banner" role="alert"><strong>¡BINGO!</strong><span>Ganaste con {winningCards.length === 1 ? 'tu cartón' : `${winningCards.length} cartones`}.</span></div>}
     {!cards.length && !message && <section className="empty-state"><h2>Aún no tienes cartones asignados</h2><p>Cuando FECSUPOL te asigne un cartón aparecerá aquí.</p></section>}
     <div className="player-cards">{cards.map((card) => {
-      const drawn = new Set(card.game.drawnBalls.map((ball) => ball.number))
-      const required = new Set(card.game.winningCells.map((cell) => `${cell.row}:${cell.column}`))
-      const latest = card.game.drawnBalls.at(-1)
-      const winner = card.game.winners.some((item) => item.cardId === card.id)
+      const game = card.game
+      if (!game) return <article className="player-card" key={card.id}><div className="card-top"><div><h2>Cartón #{card.number ?? '—'}</h2><span>Asignación permanente</span></div></div><p className="objective">Esperando el primer sorteo de FECSUPOL.</p></article>
+      const drawn = new Set(game.drawnBalls.map((ball) => ball.number))
+      const required = new Set(game.winningCells.map((cell) => `${cell.row}:${cell.column}`))
+      const latest = game.drawnBalls.at(-1)
+      const winner = game.winners.some((item) => item.cardId === card.id)
       return <article className={`player-card ${winner ? 'is-winner' : ''}`} key={card.id}>
-        <div className="card-top"><div><h2>{card.game.name}</h2><span>Cartón #{card.number ?? '—'} · {card.game.status}</span></div><div className="latest-player-ball"><small>Última</small><strong>{latest?.number ?? '—'}</strong></div></div>
-        <p className="objective">{card.game.winningType === 'CUSTOM' ? `Figura: ${card.game.patternName}` : 'Objetivo: llenar el cartón'}</p>
-        <div className="bingo-grid"><div className="bingo-head">{columns.map((column) => <strong key={column}>{column}</strong>)}</div>{Array.from({ length: 5 }, (_, row) => <div className="bingo-row" key={row}>{Array.from({ length: 5 }, (_, column) => card.cells.find((cell) => cell.row === row && cell.column === column)).map((cell, column) => { if (!cell) return <span key={column} />; const marked = cell.isFree || drawn.has(cell.number ?? -1) || (marks[card.id] ?? []).includes(cell.id); const target = card.game.winningType !== 'CUSTOM' || required.has(`${cell.row}:${cell.column}`); return <button type="button" key={cell.id} className={`${marked ? 'marked' : ''} ${target ? 'target' : ''}`} onClick={() => toggleMark(card.id, cell.id)}>{cell.isFree ? '★' : cell.number}</button> })}</div>)}</div>
-        <div className="player-history"><strong>Balotas</strong><div>{card.game.drawnBalls.map((ball) => <span key={ball.id}>{ball.number}</span>)}</div></div>
+        <div className="card-top"><div><h2>{game.name}</h2><span>Cartón #{card.number ?? '—'} · {game.status}</span></div><div className="latest-player-ball"><small>Última</small><strong>{latest?.number ?? '—'}</strong></div></div>
+        <p className="objective">{game.winningType === 'CUSTOM' ? `Figura: ${game.patternName}` : 'Objetivo: llenar el cartón'}</p>
+        <div className="bingo-grid"><div className="bingo-head">{columns.map((column) => <strong key={column}>{column}</strong>)}</div>{Array.from({ length: 5 }, (_, row) => <div className="bingo-row" key={row}>{Array.from({ length: 5 }, (_, column) => card.cells.find((cell) => cell.row === row && cell.column === column)).map((cell, column) => { if (!cell) return <span key={column} />; const marked = cell.isFree || drawn.has(cell.number ?? -1) || (marks[card.id] ?? []).includes(cell.id); const target = game.winningType !== 'CUSTOM' || required.has(`${cell.row}:${cell.column}`); return <button type="button" key={cell.id} className={`${marked ? 'marked' : ''} ${target ? 'target' : ''}`} onClick={() => toggleMark(card.id, cell.id)}>{cell.isFree ? '★' : cell.number}</button> })}</div>)}</div>
+        <div className="player-history"><strong>Balotas</strong><div>{game.drawnBalls.map((ball) => <span key={ball.id}>{ball.number}</span>)}</div></div>
         <small className="manual-note">La marcación es una ayuda visual. FECSUPOL valida el ganador automáticamente.</small>
       </article>
     })}</div>

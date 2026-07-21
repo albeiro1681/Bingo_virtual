@@ -23,7 +23,6 @@ export class WhatsAppService {
 
   async notifyAssignment(input: {
     user: { id: string; name: string; phone: string };
-    game: { id: string; name: string };
     cardNumbers: number[];
     accessToken: string;
   }): Promise<void> {
@@ -39,15 +38,9 @@ export class WhatsAppService {
         'WHATSAPP_TEMPLATE_CARD_ASSIGNMENT',
         'card_assignment',
       ),
-      parameters: [
-        input.user.name,
-        input.game.name,
-        input.cardNumbers.join(', '),
-        link,
-      ],
-      idempotencyKey: `assignment:${input.game.id}:${input.user.id}:${input.cardNumbers.join('-')}`,
+      parameters: [input.user.name, input.cardNumbers.join(', '), link],
+      idempotencyKey: `assignment:${input.user.id}:${input.cardNumbers.join('-')}`,
       userId: input.user.id,
-      gameId: input.game.id,
     });
   }
 

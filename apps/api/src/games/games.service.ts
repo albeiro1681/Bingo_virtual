@@ -53,14 +53,21 @@ export class GamesService {
     });
   }
 
-  list() {
-    return this.prisma.game.findMany({
-      include: {
-        winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
-        _count: { select: { cards: true, drawnBalls: true, winners: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async list() {
+    const [games, assignedCards] = await Promise.all([
+      this.prisma.game.findMany({
+        include: {
+          winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
+          _count: { select: { drawnBalls: true, winners: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.card.count(),
+    ]);
+    return games.map((game) => ({
+      ...game,
+      _count: { ...game._count, cards: assignedCards },
+    }));
   }
 
   winners(id: string) {
@@ -85,11 +92,10 @@ export class GamesService {
           },
           orderBy: { detectedAt: 'asc' },
         },
-        _count: { select: { cards: true } },
       },
     });
     if (!game) throw new NotFoundException('Game not found');
-    return game;
+    return { ...game, _count: { cards: await this.prisma.card.count() } };
   }
 
   async start(id: string) {
@@ -101,13 +107,44 @@ export class GamesService {
           throw new ConflictException('Only draft games can be started');
         }
 
-        const active = await tx.game.findFirst({ where: { status: 'ACTIVE' } });
+        const [active, assignedCards] = await Promise.all([
+          tx.game.findFirst({ where: { status: 'ACTIVE' } }),
+          tx.card.count(),
+        ]);
         if (active)
           throw new ConflictException('Another game is already active');
+        if (assignedCards === 0) {
+          throw new ConflictException(
+            'At least one card must be assigned before starting a game',
+          );
+        }
 
         return tx.game.update({
           where: { id },
           data: { status: 'ACTIVE', startedAt: new Date() },
+        });
+      },
+      { isolationLevel: 'Serializable' },
+    );
+    this.gateway.gameUpdated(game);
+    return game;
+  }
+
+  async finish(id: string) {
+    const game = await this.prisma.$transaction(
+      async (tx) => {
+        const current = await tx.game.findUnique({ where: { id } });
+        if (!current) throw new NotFoundException('Game not found');
+        if (current.status !== 'ACTIVE') {
+          throw new ConflictException('Only an active game can be finished');
+        }
+        return tx.game.update({
+          where: { id },
+          data: {
+            status: 'FINISHED',
+            finishedAt: new Date(),
+            endedManually: true,
+          },
         });
       },
       { isolationLevel: 'Serializable' },

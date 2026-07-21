@@ -7,9 +7,9 @@ import PlayerApp from './PlayerApp'
 type Cell = { row: number; column: number; number?: number | null; isFree?: boolean }
 type Pattern = { id: string; name: string; cells: Cell[] }
 type Player = { id: string; name: string; phone?: string; active: boolean }
-type CardTemplate = { id: string; number: number; cells: Cell[] }
-type Game = { id: string; name: string; status: string; winningType: string; patternName?: string | null; winningCells: Cell[]; _count: { cards: number; drawnBalls: number; winners: number } }
-type Card = { id: string; serial: string; number?: number | null; user: Player; game: Pick<Game, 'id' | 'name' | 'status'>; cells: Cell[] }
+type CardTemplate = { id: string; number: number; cells: Cell[]; card?: { id: string; user: Pick<Player, 'id' | 'name'> } | null }
+type Game = { id: string; name: string; status: string; winningType: string; patternName?: string | null; winningCells: Cell[]; endedManually: boolean; _count: { cards: number; drawnBalls: number; winners: number } }
+type Card = { id: string; serial: string; number: number; user: Player; cells: Cell[] }
 type Winner = { id: string; type: string; detectedAt: string; card: { serial: string; number?: number | null; user: Player } }
 type Ball = { id: string; number: number; drawOrder: number; drawnAt: string }
 type GameState = Game & { drawnBalls: Ball[]; winners: Winner[] }
@@ -46,7 +46,6 @@ function AdminApp() {
   const [winMode, setWinMode] = useState<'FULL_CARD' | 'FIGURE'>('FULL_CARD')
   const [patternId, setPatternId] = useState('')
   const [cardPlayerId, setCardPlayerId] = useState('')
-  const [cardGameId, setCardGameId] = useState('')
   const [cardNumbers, setCardNumbers] = useState<number[]>([])
   const [message, setMessage] = useState('')
   const [loginMessage, setLoginMessage] = useState('')
@@ -108,9 +107,8 @@ function AdminApp() {
 
   if (!token) return <main className="login"><form className="panel" onSubmit={(event) => { event.preventDefault(); setLoginMessage(''); sessionStorage.setItem('fecs-admin-token', tokenDraft); setToken(tokenDraft) }}><p className="organization">FECSUPOL</p><h1>Bingo Virtual</h1>{loginMessage && <p className="message" role="status">{loginMessage}</p>}<label>Token administrativo<input required type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} /></label><button className="primary">Ingresar</button></form></main>
 
-  const draftGames = games.filter((game) => game.status === 'DRAFT')
   const selectedGame = games.find((game) => game.id === selectedGameId)
-  const assignedNumbers = new Set(cards.filter((card) => card.game.id === cardGameId).map((card) => card.number ?? 0))
+  const assignedNumbers = new Set(cards.map((card) => card.number))
   const drawBall = async () => {
     if (!selectedGame || drawingRef.current) return
     drawingRef.current = true
@@ -135,6 +133,15 @@ function AdminApp() {
       setRollingNumber(null)
     }
   }
+  const finishGame = async () => {
+    if (!selectedGame || drawingRef.current) return
+    const confirmed = window.confirm(`¿Terminar anticipadamente el sorteo "${selectedGame.name}"? Después no se podrán extraer más balotas.`)
+    if (!confirmed) return
+    await submit(async () => {
+      await request(`/api/admin/games/${selectedGame.id}/finish`, { method: 'POST' })
+      await loadGameState(selectedGame.id)
+    })
+  }
 
   return <main className="admin">
     <header><div><p className="organization">FECSUPOL</p><h1>Administración del Bingo Virtual</h1></div><button className="secondary" onClick={() => { sessionStorage.removeItem('fecs-admin-token'); setToken('') }}>Cerrar sesión</button></header>
@@ -147,14 +154,14 @@ function AdminApp() {
 
       <form className="panel" onSubmit={(event) => { event.preventDefault(); void submit(async () => { await request('/api/admin/games', { method: 'POST', body: JSON.stringify({ name: gameName, winMode, ...(winMode === 'FIGURE' ? { patternId } : {}) }) }); setGameName('') }) }}><h2>Crear sorteo</h2><label>Nombre<input required minLength={2} value={gameName} onChange={(event) => setGameName(event.target.value)} /></label><label>Forma de ganar<select value={winMode} onChange={(event) => setWinMode(event.target.value as 'FULL_CARD' | 'FIGURE')}><option value="FULL_CARD">Cartón completo</option><option value="FIGURE">Figura</option></select></label>{winMode === 'FIGURE' && <label>Figura<select required value={patternId} onChange={(event) => setPatternId(event.target.value)}><option value="">Selecciona</option>{patterns.map((pattern) => <option key={pattern.id} value={pattern.id}>{pattern.name}</option>)}</select></label>}<button className="primary">Crear sorteo</button></form>
 
-      <form className="panel card-assignment" onSubmit={(event) => { event.preventDefault(); void submit(async () => { await request('/api/admin/cards/generate', { method: 'POST', body: JSON.stringify({ userId: cardPlayerId, gameId: cardGameId, cardNumbers }) }); setCardNumbers([]) }) }}><h2>Asignar cartones fijos</h2>{!cardCatalog.length && <button type="button" className="secondary" onClick={() => void submit(async () => { await request('/api/admin/cards/catalog/initialize', { method: 'POST' }) })}>Generar catálogo 1–120</button>}<label>Jugador<select required value={cardPlayerId} onChange={(event) => setCardPlayerId(event.target.value)}><option value="">Selecciona</option>{players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></label><label>Sorteo borrador<select required value={cardGameId} onChange={(event) => { setCardGameId(event.target.value); setCardNumbers([]) }}><option value="">Selecciona</option>{draftGames.map((game) => <option key={game.id} value={game.id}>{game.name}</option>)}</select></label><div className="number-picker">{cardCatalog.map((template) => { const unavailable = assignedNumbers.has(template.number); const selected = cardNumbers.includes(template.number); return <button type="button" key={template.id} disabled={!cardGameId || unavailable} className={selected ? 'selected' : ''} onClick={() => setCardNumbers((current) => current.includes(template.number) ? current.filter((number) => number !== template.number) : [...current, template.number])}>{template.number}</button> })}</div><button className="primary" disabled={!cardNumbers.length}>Asignar {cardNumbers.length || ''} cartón(es) y enviar WhatsApp</button></form>
+      <form className="panel card-assignment" onSubmit={(event) => { event.preventDefault(); void submit(async () => { await request('/api/admin/cards/generate', { method: 'POST', body: JSON.stringify({ userId: cardPlayerId, cardNumbers }) }); setCardNumbers([]) }) }}><h2>Asignar cartones fijos</h2><p>La asignación será permanente y aplicará a todos los sorteos.</p>{!cardCatalog.length && <button type="button" className="secondary" onClick={() => void submit(async () => { await request('/api/admin/cards/catalog/initialize', { method: 'POST' }) })}>Generar catálogo 1–120</button>}<label>Jugador<select required value={cardPlayerId} onChange={(event) => setCardPlayerId(event.target.value)}><option value="">Selecciona</option>{players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></label><div className="number-picker">{cardCatalog.map((template) => { const unavailable = assignedNumbers.has(template.number); const selected = cardNumbers.includes(template.number); return <button type="button" key={template.id} disabled={unavailable} title={unavailable ? `Asignado a ${template.card?.user.name ?? 'otro jugador'}` : `Cartón ${template.number}`} className={selected ? 'selected' : ''} onClick={() => setCardNumbers((current) => current.includes(template.number) ? current.filter((number) => number !== template.number) : [...current, template.number])}>{template.number}</button> })}</div><button className="primary" disabled={!cardNumbers.length}>Asignar permanentemente {cardNumbers.length || ''} cartón(es) y enviar WhatsApp</button></form>
     </div>
 
     <section className="wide-panel"><h2>Sorteos</h2><div className="table-wrap"><table><thead><tr><th>Nombre</th><th>Modalidad</th><th>Estado</th><th>Cartones</th><th>Balotas</th><th>Ganadores</th><th>Acciones</th></tr></thead><tbody>{games.map((game) => <tr key={game.id}><td>{game.name}</td><td>{game.winningType === 'CUSTOM' ? game.patternName : 'Cartón completo'}</td><td>{game.status}</td><td>{game._count.cards}</td><td>{game._count.drawnBalls}</td><td>{game._count.winners}</td><td><button onClick={() => { setSelectedGameId(game.id); void request(`/api/admin/games/${game.id}/winners`).then((data: Winner[]) => setWinners(data)) }}>Ver</button>{game.status === 'DRAFT' && <button onClick={() => void submit(async () => { await request(`/api/admin/games/${game.id}/start`, { method: 'POST' }) })}>Iniciar</button>}</td></tr>)}</tbody></table></div></section>
 
-    {selectedGame && <section className="wide-panel draw-panel"><div className="draw-heading"><div><h2>Panel de sorteo: {selectedGame.name}</h2><p>{selectedGame.winningType === 'CUSTOM' ? `Figura: ${selectedGame.patternName}` : 'Objetivo: llenar el cartón'}</p></div>{selectedGame.status === 'ACTIVE' && <button className="draw-button" disabled={drawing} onClick={() => void drawBall()}>{drawing ? 'Balotera girando…' : 'Girar balotera'}</button>}</div><div className="draw-layout"><div className={`last-ball ${drawing ? 'spinning' : ''}`}><span>{drawing ? 'Girando' : 'Última balota'}</span><strong>{drawing ? rollingNumber ?? '—' : gameState?.drawnBalls.at(-1)?.number ?? '—'}</strong><small>{gameState?.drawnBalls.length ?? 0} de 75</small></div><div><h3>Historial</h3><div className="ball-history">{gameState?.drawnBalls.map((ball) => <span key={ball.id}>{ball.number}</span>)}</div></div><div><h3>Figura objetivo</h3>{selectedGame.winningType === 'CUSTOM' ? <PatternGrid cells={selectedGame.winningCells} /> : <p>Cartón completo</p>}</div><div><h3>Jugadores activos ({activePlayers.length})</h3>{activePlayers.length ? <ul>{activePlayers.map((player) => <li key={player.id}>{player.name}</li>)}</ul> : <p>No hay jugadores conectados.</p>}</div><div><h3>Ganadores</h3>{winners.length ? <ul>{winners.map((winner) => <li key={winner.id}>{winner.card.user.name} — cartón #{winner.card.number ?? '—'}</li>)}</ul> : <p>Aún no hay ganadores.</p>}</div></div></section>}
+    {selectedGame && <section className="wide-panel draw-panel"><div className="draw-heading"><div><h2>Panel de sorteo: {selectedGame.name}</h2><p>{selectedGame.winningType === 'CUSTOM' ? `Figura: ${selectedGame.patternName}` : 'Objetivo: llenar el cartón'}</p>{selectedGame.endedManually && <p>Este sorteo terminó anticipadamente.</p>}</div>{selectedGame.status === 'ACTIVE' && <div className="draw-actions"><button className="draw-button" disabled={drawing} onClick={() => void drawBall()}>{drawing ? 'Balotera girando…' : 'Girar balotera'}</button><button className="danger" disabled={drawing} onClick={() => void finishGame()}>Terminar sorteo</button></div>}</div><div className="draw-layout"><div className={`last-ball ${drawing ? 'spinning' : ''}`}><span>{drawing ? 'Girando' : 'Última balota'}</span><strong>{drawing ? rollingNumber ?? '—' : gameState?.drawnBalls.at(-1)?.number ?? '—'}</strong><small>{gameState?.drawnBalls.length ?? 0} de 75</small></div><div><h3>Historial</h3><div className="ball-history">{gameState?.drawnBalls.map((ball) => <span key={ball.id}>{ball.number}</span>)}</div></div><div><h3>Figura objetivo</h3>{selectedGame.winningType === 'CUSTOM' ? <PatternGrid cells={selectedGame.winningCells} /> : <p>Cartón completo</p>}</div><div><h3>Jugadores activos ({activePlayers.length})</h3>{activePlayers.length ? <ul>{activePlayers.map((player) => <li key={player.id}>{player.name}</li>)}</ul> : <p>No hay jugadores conectados.</p>}</div><div><h3>Ganadores</h3>{winners.length ? <ul>{winners.map((winner) => <li key={winner.id}>{winner.card.user.name} — cartón #{winner.card.number ?? '—'}</li>)}</ul> : <p>Aún no hay ganadores.</p>}</div></div></section>}
 
-    <section className="wide-panel"><h2>Cartones asignados ({cards.length})</h2><div className="card-list">{cards.map((card) => <article key={card.id}><strong>Cartón #{card.number ?? '—'} · {card.user.name}</strong><span>{card.game.name}</span><small>{card.serial}</small></article>)}</div></section>
+    <section className="wide-panel"><h2>Cartones asignados permanentemente ({cards.length})</h2><div className="card-list">{cards.map((card) => <article key={card.id}><strong>Cartón #{card.number} · {card.user.name}</strong><span>Válido para todos los sorteos</span><small>{card.serial}</small></article>)}</div></section>
   </main>
 }
 

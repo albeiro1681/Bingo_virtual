@@ -52,6 +52,7 @@ describe('GamesService', () => {
 
   it('starts a draft game when no other game is active', async () => {
     const tx = {
+      card: { count: jest.fn().mockResolvedValue(1) },
       game: {
         findUnique: jest
           .fn()
@@ -80,6 +81,7 @@ describe('GamesService', () => {
 
   it('rejects starting a game while another is active', async () => {
     const tx = {
+      card: { count: jest.fn().mockResolvedValue(1) },
       game: {
         findUnique: jest
           .fn()
@@ -98,5 +100,60 @@ describe('GamesService', () => {
     await expect(
       new GamesService(prisma, gateway).start('game-1'),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects starting a game without permanent card assignments', async () => {
+    const tx = {
+      card: { count: jest.fn().mockResolvedValue(0) },
+      game: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'game-1', status: 'DRAFT' }),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+
+    await expect(
+      new GamesService(prisma, gateway).start('game-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('finishes an active game manually and publishes the update', async () => {
+    const finished = {
+      id: 'game-1',
+      status: 'FINISHED',
+      endedManually: true,
+    };
+    const tx = {
+      game: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'game-1', status: 'ACTIVE' }),
+        update: jest.fn().mockResolvedValue(finished),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+
+    await expect(
+      new GamesService(prisma, gateway).finish('game-1'),
+    ).resolves.toBe(finished);
+    expect(tx.game.update).toHaveBeenCalledWith({
+      where: { id: 'game-1' },
+      data: {
+        status: 'FINISHED',
+        finishedAt: expect.any(Date) as Date,
+        endedManually: true,
+      },
+    });
+    expect(gameUpdated).toHaveBeenCalledWith(finished);
   });
 });
