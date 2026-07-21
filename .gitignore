@@ -5,6 +5,8 @@
 node_modules/
 dist/
 coverage/
+.vite/
+apps/api/src/generated/
 
 .vscode/
 .DS_Store

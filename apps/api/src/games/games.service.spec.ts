@@ -1,0 +1,102 @@
+import { ConflictException } from '@nestjs/common';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { DrawsGateway } from '../draws/draws.gateway';
+import { GamesService } from './games.service';
+import { GameWinMode } from './dto/create-game.dto';
+
+describe('GamesService', () => {
+  const gameUpdated = jest.fn();
+  const gateway = { gameUpdated } as unknown as DrawsGateway;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('copies the selected figure into the game snapshot', async () => {
+    const cells = [
+      { row: 0, column: 0 },
+      { row: 1, column: 1 },
+    ];
+    const tx = {
+      bingoPattern: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'pattern-1',
+          name: 'Diagonal corta',
+          active: true,
+          cells,
+        }),
+      },
+      game: { create: jest.fn().mockResolvedValue({ id: 'game-1' }) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+
+    await new GamesService(prisma, gateway).create({
+      name: 'Sorteo figura',
+      winMode: GameWinMode.FIGURE,
+      patternId: 'pattern-1',
+    });
+
+    expect(tx.game.create).toHaveBeenCalledWith({
+      data: {
+        name: 'Sorteo figura',
+        winningType: 'CUSTOM',
+        patternId: 'pattern-1',
+        patternName: 'Diagonal corta',
+        winningCells: { create: cells },
+      },
+      include: { winningCells: true },
+    });
+  });
+
+  it('starts a draft game when no other game is active', async () => {
+    const tx = {
+      game: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'game-1', status: 'DRAFT' }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn().mockResolvedValue({ id: 'game-1', status: 'ACTIVE' }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+
+    await expect(
+      new GamesService(prisma, gateway).start('game-1'),
+    ).resolves.toMatchObject({
+      status: 'ACTIVE',
+    });
+    expect(tx.game.update).toHaveBeenCalledTimes(1);
+    expect(gameUpdated).toHaveBeenCalledWith({
+      id: 'game-1',
+      status: 'ACTIVE',
+    });
+  });
+
+  it('rejects starting a game while another is active', async () => {
+    const tx = {
+      game: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'game-1', status: 'DRAFT' }),
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'game-2', status: 'ACTIVE' }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+
+    await expect(
+      new GamesService(prisma, gateway).start('game-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+});

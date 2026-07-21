@@ -51,3 +51,23 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 - Escribir pruebas para las reglas del motor de bingo.
 - Antes de cambios grandes, explicar el plan y esperar aprobación.
 - No eliminar datos, migraciones ni volúmenes Docker sin aprobación.
+
+## Requisitos funcionales actualizados
+
+- La organización propietaria de la aplicación es el Fondo de Empleados FECSUPOL.
+- Debe existir un catálogo global e inmutable de 120 cartones maestros, numerados del 1 al 120.
+- Los mismos cartones maestros se reutilizan entre sorteos; la asignación a un jugador pertenece a un sorteo concreto.
+- El administrador asigna los números de cartón escogidos por el comprador y no genera cartones nuevos durante la venta.
+- Un número de cartón no puede asignarse dos veces dentro del mismo sorteo.
+- Un sorteo puede ganarse llenando el cartón o completando una figura 5x5 programada por el administrador.
+- Las figuras se evalúan exactamente en las coordenadas y orientación guardadas; no se aceptan rotaciones, reflejos ni desplazamientos.
+- Números sorteados fuera de la figura no invalidan un ganador.
+- La extracción debe presentarse como una balotera animada, pero la balota definitiva siempre la determina el backend.
+- El teléfono es obligatorio para jugadores y se almacena en formato internacional E.164.
+- Al asignar cartones se envía por WhatsApp un enlace que contiene el token de acceso del jugador.
+- La vista del jugador consume el token del enlace, lo guarda en la sesión y limpia la URL inmediatamente.
+- Al detectar ganadores se notifica por WhatsApp al ganador y al canal configurado de FECSUPOL.
+- Utilizar exclusivamente WhatsApp Cloud API oficial; no automatizar WhatsApp Web ni usar clientes no oficiales.
+- El envío a grupos depende de la elegibilidad de la cuenta de Meta; debe existir un modo alternativo de notificación individual a responsables.
+- Los fallos de WhatsApp no deben revertir ni bloquear el resultado del sorteo.
+- Registrar entregas y reintentos de WhatsApp de forma idempotente y no almacenar credenciales de Meta en Git.
