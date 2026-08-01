@@ -11,8 +11,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { DrawsGateway } from './draws.gateway';
+import { availableBallNumbers } from './ball-pool';
 
-const BALL_COUNT = 75;
 const MAX_TRANSACTION_RETRIES = 5;
 const RETRYABLE_TRANSACTION_CODES = new Set(['P2002', 'P2034']);
 
@@ -51,10 +51,7 @@ export class DrawsService {
           const winningType = String(game.winningType) as WinningPattern;
 
           const drawn = new Set(game.drawnBalls.map((ball) => ball.number));
-          const available = Array.from(
-            { length: BALL_COUNT },
-            (_, index) => index + 1,
-          ).filter((number) => !drawn.has(number));
+          const available = availableBallNumbers(drawn);
           if (available.length === 0) {
             throw new ConflictException('All balls have already been drawn');
           }

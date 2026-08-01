@@ -3,13 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { generateAccessToken, hashAccessToken } from '../auth/token';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { generateCard, seededRandom } from './card-generator';
+import { CARD_CATALOG_SIZE, generateCardCatalog } from './card-generator';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
-
-const CARD_CATALOG_SIZE = 120;
 
 @Injectable()
 export class CardsService {
@@ -54,12 +51,13 @@ export class CardsService {
             'The card catalog is incomplete and requires manual review',
           );
         }
+        const catalog = generateCardCatalog();
         for (let number = 1; number <= CARD_CATALOG_SIZE; number += 1) {
           await tx.cardTemplate.create({
             data: {
               number,
               cells: {
-                create: generateCard(seededRandom(0xfec50000 + number)),
+                create: catalog[number - 1],
               },
             },
           });
@@ -71,7 +69,6 @@ export class CardsService {
   }
 
   async generate(dto: GenerateCardsDto) {
-    const accessToken = generateAccessToken();
     const result = await this.prisma.$transaction(
       async (tx) => {
         const [user, templates] = await Promise.all([
@@ -101,10 +98,6 @@ export class CardsService {
           );
         }
 
-        await tx.user.update({
-          where: { id: user.id },
-          data: { tokenHash: hashAccessToken(accessToken) },
-        });
         const cards: Array<{ id: string; serial: string; number: number }> = [];
         for (const template of templates.sort((a, b) => a.number - b.number)) {
           const card = await tx.card.create({
@@ -126,6 +119,14 @@ export class CardsService {
             },
             select: { id: true, serial: true },
           });
+          await tx.cardAssignmentAudit.create({
+            data: {
+              cardId: card.id,
+              cardNumber: template.number,
+              newUserId: user.id,
+              action: 'ASSIGNED',
+            },
+          });
           cards.push({ ...card, number: template.number });
         }
         return { user, cards };
@@ -140,8 +141,116 @@ export class CardsService {
         phone: result.user.phone!,
       },
       cardNumbers: result.cards.map((card) => card.number),
-      accessToken,
     });
     return { count: result.cards.length, cards: result.cards };
+  }
+
+  async updatePlayerCards(userId: string, cardNumbers: number[]) {
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const [user, current, requested, startedGames] = await Promise.all([
+          tx.user.findFirst({ where: { id: userId, role: 'PLAYER' } }),
+          tx.card.findMany({
+            where: { userId },
+            include: { template: { include: { cells: true } } },
+          }),
+          tx.cardTemplate.findMany({
+            where: { number: { in: cardNumbers } },
+            include: { cells: true, card: true },
+          }),
+          tx.game.count({ where: { startedAt: { not: null } } }),
+        ]);
+        if (!user || !user.phone)
+          throw new NotFoundException('Player with phone not found');
+        if (requested.length !== cardNumbers.length)
+          throw new ConflictException('One or more card numbers do not exist');
+
+        const desired = new Set(cardNumbers);
+        const removed = current.filter((card) => !desired.has(card.number));
+        const transferred = requested.filter(
+          (template) => template.card && template.card.userId !== userId,
+        );
+        if (
+          startedGames > 0 &&
+          (removed.length > 0 || transferred.length > 0)
+        ) {
+          throw new ConflictException(
+            'Assigned cards are permanently locked because a draw has already started',
+          );
+        }
+
+        for (const card of removed) {
+          await tx.cardAssignmentAudit.create({
+            data: {
+              cardId: card.id,
+              cardNumber: card.number,
+              previousUserId: userId,
+              action: 'UNASSIGNED',
+            },
+          });
+          await tx.card.delete({ where: { id: card.id } });
+        }
+        for (const template of requested.sort((a, b) => a.number - b.number)) {
+          if (template.card?.userId === userId) continue;
+          if (template.card) {
+            await tx.cardAssignmentAudit.create({
+              data: {
+                cardId: template.card.id,
+                cardNumber: template.number,
+                previousUserId: template.card.userId,
+                newUserId: userId,
+                action: 'REASSIGNED',
+              },
+            });
+            await tx.card.update({
+              where: { id: template.card.id },
+              data: { userId },
+            });
+            continue;
+          }
+          const card = await tx.card.create({
+            data: {
+              serial: `FECSUPOL-${String(template.number).padStart(3, '0')}`,
+              number: template.number,
+              templateId: template.id,
+              userId,
+              cells: {
+                create: template.cells.map(
+                  ({ row, column, number, isFree }) => ({
+                    row,
+                    column,
+                    number,
+                    isFree,
+                  }),
+                ),
+              },
+            },
+          });
+          await tx.cardAssignmentAudit.create({
+            data: {
+              cardId: card.id,
+              cardNumber: template.number,
+              newUserId: userId,
+              action: 'ASSIGNED',
+            },
+          });
+        }
+        return { user, cardNumbers: [...cardNumbers].sort((a, b) => a - b) };
+      },
+      { isolationLevel: 'Serializable' },
+    );
+
+    await this.whatsapp.notifyAssignment({
+      user: {
+        id: result.user.id,
+        name: result.user.name,
+        phone: result.user.phone!,
+      },
+      cardNumbers: result.cardNumbers,
+    });
+    return {
+      count: result.cardNumbers.length,
+      cardNumbers: result.cardNumbers,
+    };
   }
 }

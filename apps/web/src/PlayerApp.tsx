@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { io } from 'socket.io-client'
 import './PlayerApp.css'
+import { bingoBallLabel } from './bingo-ball'
 
 type Ball = { id: string; number: number; drawOrder: number }
 type Cell = { id: string; row: number; column: number; number: number | null; isFree: boolean }
@@ -108,7 +109,7 @@ function PlayerApp() {
       const latest = game.drawnBalls.at(-1)
       const winner = game.winners.some((item) => item.cardId === card.id)
       return <article className={`player-card ${winner ? 'is-winner' : ''}`} key={card.id}>
-        <div className="card-top"><div><h2>{game.name}</h2><span>Cartón #{card.number ?? '—'} · {game.status}</span></div><div className="latest-player-ball"><small>Última</small><strong>{latest?.number ?? '—'}</strong></div></div>
+        <div className="card-top"><div><h2>{game.name}</h2><span>Cartón #{card.number ?? '—'} · {game.status}</span></div><div className="latest-player-ball"><small>Última</small><strong>{latest ? bingoBallLabel(latest.number) : '—'}</strong></div></div>
         <p className="objective">{game.winningType === 'CUSTOM' ? `Figura: ${game.patternName}` : 'Objetivo: llenar el cartón'}</p>
         <div className="bingo-grid"><div className="bingo-head">{columns.map((column) => <strong key={column}>{column}</strong>)}</div>{Array.from({ length: 5 }, (_, row) => <div className="bingo-row" key={row}>{Array.from({ length: 5 }, (_, column) => card.cells.find((cell) => cell.row === row && cell.column === column)).map((cell, column) => { if (!cell) return <span key={column} />; const marked = cell.isFree || drawn.has(cell.number ?? -1) || (marks[card.id] ?? []).includes(cell.id); const target = game.winningType !== 'CUSTOM' || required.has(`${cell.row}:${cell.column}`); return <button type="button" key={cell.id} className={`${marked ? 'marked' : ''} ${target ? 'target' : ''}`} onClick={() => toggleMark(card.id, cell.id)}>{cell.isFree ? '★' : cell.number}</button> })}</div>)}</div>
         <div className="player-history"><strong>Balotas</strong><div>{game.drawnBalls.map((ball) => <span key={ball.id}>{ball.number}</span>)}</div></div>

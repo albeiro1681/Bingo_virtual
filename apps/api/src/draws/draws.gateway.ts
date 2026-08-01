@@ -34,10 +34,21 @@ export class DrawsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    const user = await this.prisma.user.findFirst({
-      where: { tokenHash: hashAccessToken(token), active: true },
-      select: { id: true, name: true, role: true },
+    const tokenHash = hashAccessToken(token);
+    const session = await this.prisma.adminSession.findFirst({
+      where: {
+        tokenHash,
+        expiresAt: { gt: new Date() },
+        user: { active: true, role: 'ADMIN' },
+      },
+      select: { user: { select: { id: true, name: true, role: true } } },
     });
+    const user =
+      session?.user ??
+      (await this.prisma.user.findFirst({
+        where: { tokenHash, active: true, role: 'PLAYER' },
+        select: { id: true, name: true, role: true },
+      }));
     if (!user) {
       socket.disconnect(true);
       return;

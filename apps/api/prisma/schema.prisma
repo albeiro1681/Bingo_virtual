@@ -30,6 +30,7 @@ enum WinnerType {
 }
 
 enum WhatsAppDeliveryKind {
+  PLAYER_ACCESS
   CARD_ASSIGNMENT
   WINNER_PLAYER
   WINNER_GROUP
@@ -67,12 +68,57 @@ model User {
   name               String
   role               UserRole           @default(PLAYER)
   tokenHash          String             @unique
+  tokenEncrypted     String?
+  username           String?            @unique
+  passwordHash       String?
   phone              String?            @unique
   active             Boolean            @default(true)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   cards              Card[]
   whatsappDeliveries WhatsAppDelivery[]
+  adminSessions      AdminSession[]
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model WhatsAppSettings {
+  id                       Int      @id @default(1)
+  accessTokenEncrypted     String?
+  phoneNumberId            String?
+  businessAccountId        String?
+  graphApiVersion          String   @default("v23.0")
+  templateLanguage         String   @default("es")
+  playerAccessTemplate     String   @default("player_access")
+  cardAssignmentTemplate   String   @default("card_assignment")
+  winnerPlayerTemplate     String   @default("winner_player")
+  winnerFundTemplate       String   @default("winner_group")
+  fundContacts             String?
+  publicAppUrl             String?
+  updatedAt                DateTime @updatedAt
+}
+
+model CardAssignmentAudit {
+  id             String   @id @default(cuid())
+  cardId         String
+  cardNumber     Int
+  previousUserId String?
+  newUserId      String?
+  action         String
+  createdAt      DateTime @default(now())
+
+  @@index([cardId])
+  @@index([createdAt])
 }
 
 model Game {

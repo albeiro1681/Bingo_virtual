@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y 120 cartones.
+Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y 130 cartones.
 
 ## Arquitectura acordada
 
@@ -55,7 +55,12 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 ## Requisitos funcionales actualizados
 
 - La organización propietaria de la aplicación es el Fondo de Empleados FECSUPOL.
-- Debe existir un catálogo global e inmutable de 120 cartones maestros, numerados del 1 al 120.
+- Debe existir un catálogo global e inmutable de 130 cartones maestros, numerados del 1 al 130.
+- El catálogo maestro se genera una sola vez mediante una acción administrativa explícita y se conserva en PostgreSQL; reiniciar la aplicación no debe regenerarlo.
+- La generación del catálogo debe ser pseudoaleatoria, reproducible y globalmente balanceada por columna B-I-N-G-O.
+- En las columnas B, I, G y O cada número debe aparecer 43 o 44 veces en el catálogo completo; en N debe aparecer 34 o 35 veces debido al centro libre.
+- Dentro de cada columna la diferencia entre la frecuencia mínima y máxima de sus números no puede superar una aparición.
+- Cada cartón debe contener 24 números, respetar los rangos B-I-N-G-O, no repetir números y ser diferente de los demás cartones maestros.
 - Cada cartón se asigna globalmente a un único jugador y conserva ese propietario para todos los sorteos presentes y futuros.
 - El administrador asigna los números de cartón escogidos por el comprador y no genera cartones nuevos durante la venta.
 - Un número de cartón no puede asignarse a más de un jugador ni cambiarse entre sorteos.

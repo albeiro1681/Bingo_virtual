@@ -4,6 +4,43 @@ import type { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CardsService } from './cards.service';
 
 describe('CardsService', () => {
+  it('blocks transfer after any draw has started', async () => {
+    const tx = {
+      user: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'player-2',
+          name: 'Two',
+          role: 'PLAYER',
+          active: true,
+          phone: '+573001234568',
+        }),
+      },
+      card: { findMany: jest.fn().mockResolvedValue([]) },
+      cardTemplate: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'template-8',
+            number: 8,
+            cells: [],
+            card: { id: 'card-8', userId: 'player-1' },
+          },
+        ]),
+      },
+      game: { count: jest.fn().mockResolvedValue(1) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const whatsapp = {
+      notifyAssignment: jest.fn(),
+    } as unknown as WhatsAppService;
+    await expect(
+      new CardsService(prisma, whatsapp).updatePlayerCards('player-2', [8]),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('rejects card numbers already assigned globally', async () => {
     const tx = {
       user: {
@@ -66,6 +103,7 @@ describe('CardsService', () => {
           serial: 'FECSUPOL-008',
         }),
       },
+      cardAssignmentAudit: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
@@ -97,7 +135,6 @@ describe('CardsService', () => {
       expect.objectContaining({
         user: expect.objectContaining({ id: 'player-1' }) as unknown,
         cardNumbers: [8],
-        accessToken: expect.any(String) as string,
       }),
     );
   });

@@ -23,6 +23,7 @@
     "prisma:validate": "prisma validate",
     "prisma:status": "prisma migrate status",
     "admin:create": "npm run build && node dist/src/scripts/create-admin",
+    "admin:credentials": "npm run build && node dist/src/scripts/set-admin-credentials",
     "cards:initialize": "npm run build && node dist/src/scripts/initialize-card-catalog"
   },
   "dependencies": {
