@@ -19,6 +19,9 @@ Frontend React + Vite + TypeScript para administración, presentación del sorte
 - La vista del jugador mantiene dos cartones por fila en PC y una columna en móvil.
 - Las celdas distinguen los estados normal, figura, marcada y marcada dentro de la figura.
 - Los módulos administrativos evitan scroll horizontal y adaptan tablas a tarjetas en móvil.
+- Usuarios admite plantilla e importación CSV con vista previa, reporte de errores, selección masiva y envío de enlaces por WhatsApp.
+- La vista previa carga el archivo en el campo multipart `file`; los errores del transporte se presentan con lenguaje comprensible y no se muestran respuestas técnicas como `Cannot POST`.
+- En estado Desempate, el panel prioriza participantes, balotera y control de desempate, compacta el histórico sin ocultar balotas y recupera el layout normal al finalizar.
 
 ## Comandos
 

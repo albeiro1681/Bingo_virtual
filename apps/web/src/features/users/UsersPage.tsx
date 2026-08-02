@@ -9,6 +9,9 @@ import type {
   PlayerDraft,
 } from "./types";
 import { e164Phone, emptyPlayerDraft, playerToDraft } from "./user-utils";
+import { CsvImportDialog } from "./CsvImportDialog";
+import { downloadUsersTemplate } from "./csv-utils";
+import type { BulkSendResult } from "./types";
 import "./UsersPage.css";
 
 type PlayerFilter = "ALL" | "WITH_CARDS" | "WITHOUT_CARDS";
@@ -36,6 +39,10 @@ export function UsersPage({ request }: { request: AdminRequest }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [accessLink, setAccessLink] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkSendResult | null>(null);
   const formReturnFocus = useRef<HTMLElement | null>(null);
   const managementReturnFocus = useRef<HTMLElement | null>(null);
   const requestLock = useRef(false);
@@ -111,6 +118,56 @@ export function UsersPage({ request }: { request: AdminRequest }) {
   );
   const selectedPlayer =
     players.find((player) => player.id === selectedPlayerId) ?? null;
+
+  useEffect(() => {
+    const availableIds = new Set(players.map((player) => player.id));
+    setSelectedIds(
+      (current) => new Set([...current].filter((id) => availableIds.has(id))),
+    );
+  }, [players]);
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleVisible = () =>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      const allVisibleSelected = visiblePlayers.every((player) => next.has(player.id));
+      for (const player of visiblePlayers)
+        if (allVisibleSelected) next.delete(player.id);
+        else next.add(player.id);
+      return next;
+    });
+
+  const selectFiltered = () =>
+    setSelectedIds(new Set(filteredPlayers.map((player) => player.id)));
+
+  const sendBulkLinks = async () => {
+    if (!selectedIds.size || bulkSending) return;
+    if (!window.confirm(`Se enviará el enlace de acceso a ${selectedIds.size} jugador${selectedIds.size === 1 ? "" : "es"}. ¿Deseas continuar?`)) return;
+    setBulkSending(true);
+    setBulkResult(null);
+    try {
+      const result = (await request("/api/admin/users/access-links/send", {
+        method: "POST",
+        body: JSON.stringify({ userIds: [...selectedIds] }),
+      })) as BulkSendResult;
+      setBulkResult(result);
+      await loadPlayers();
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : "No fue posible completar el envío masivo.",
+      });
+    } finally {
+      setBulkSending(false);
+    }
+  };
 
   const runOnce = async (action: () => Promise<void>) => {
     if (requestLock.current) return;
@@ -354,13 +411,17 @@ export function UsersPage({ request }: { request: AdminRequest }) {
         <p id="users-page-description">
           Crea jugadores, administra sus datos y asigna cartones permanentes.
         </p>
-        <button
-          type="button"
-          className="primary-action"
-          onClick={(event) => openCreate(event.currentTarget)}
-        >
-          <span aria-hidden="true">＋</span> Nuevo jugador
-        </button>
+        <div className="users-header-actions">
+          <button type="button" onClick={downloadUsersTemplate}>Descargar plantilla</button>
+          <button type="button" onClick={() => setImportOpen(true)}>Importar usuarios</button>
+          <button
+            type="button"
+            className="primary-action"
+            onClick={(event) => openCreate(event.currentTarget)}
+          >
+            <span aria-hidden="true">＋</span> Nuevo jugador
+          </button>
+        </div>
       </div>
 
       {notice && (
@@ -445,6 +506,32 @@ export function UsersPage({ request }: { request: AdminRequest }) {
           </label>
         </div>
 
+        {selectedIds.size > 0 && (
+          <div className="bulk-actions" role="region" aria-label="Acciones masivas">
+            <strong>{selectedIds.size} seleccionado{selectedIds.size === 1 ? "" : "s"}</strong>
+            {selectedIds.size < filteredPlayers.length && (
+              <button type="button" onClick={selectFiltered}>
+                Seleccionar los {filteredPlayers.length} resultados filtrados
+              </button>
+            )}
+            <span />
+            <button type="button" onClick={() => setSelectedIds(new Set())}>Limpiar selección</button>
+            <button type="button" className="primary-action" disabled={bulkSending} onClick={() => void sendBulkLinks()}>
+              {bulkSending ? "Enviando…" : "Enviar enlaces por WhatsApp"}
+            </button>
+          </div>
+        )}
+
+        {bulkResult && (
+          <div className="bulk-result" role="status">
+            <div><strong>Resultado del envío</strong><button type="button" aria-label="Cerrar resultado" onClick={() => setBulkResult(null)}>×</button></div>
+            <p>{bulkResult.total} seleccionados · {bulkResult.sent} exitosos · {bulkResult.failed} fallidos · {bulkResult.skipped} omitidos</p>
+            {bulkResult.results.some((item) => item.status !== "SENT") && (
+              <ul>{bulkResult.results.filter((item) => item.status !== "SENT").map((item) => <li key={item.userId}><strong>{item.name ?? item.userId}:</strong> {item.reason}</li>)}</ul>
+            )}
+          </div>
+        )}
+
         {playersError ? (
           <div className="users-state is-error" role="alert">
             <span className="users-state-icon">!</span>
@@ -465,6 +552,9 @@ export function UsersPage({ request }: { request: AdminRequest }) {
             onAccessLink={(player) => void getAccessLink(player)}
             onSendAccessLink={(player) => void sendAccessLink(player)}
             onToggleActive={(player) => void toggleActive(player)}
+            selectedIds={selectedIds}
+            onToggleSelected={toggleSelected}
+            onToggleVisible={toggleVisible}
           />
         )}
 
@@ -519,6 +609,18 @@ export function UsersPage({ request }: { request: AdminRequest }) {
         onChange={setFormDraft}
         onClose={() => setFormMode(null)}
         onSave={saveForm}
+      />
+      <CsvImportDialog
+        open={importOpen}
+        request={request}
+        onClose={() => setImportOpen(false)}
+        onImported={async (imported, failed) => {
+          await Promise.all([loadPlayers(), loadCatalog()]);
+          setNotice({
+            tone: failed ? "warning" : "success",
+            message: `${imported} jugador${imported === 1 ? "" : "es"} importado${imported === 1 ? "" : "s"}${failed ? `; ${failed} no pudieron importarse.` : "."}`,
+          });
+        }}
       />
       <UserManagementDrawer
         player={selectedPlayer}

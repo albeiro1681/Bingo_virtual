@@ -142,12 +142,19 @@ export class WhatsAppService {
     user: { id: string; name: string; phone: string };
     accessToken: string;
   }): Promise<string> {
+    return (await this.sendPlayerAccess(input)).accessLink;
+  }
+
+  async sendPlayerAccess(input: {
+    user: { id: string; name: string; phone: string };
+    accessToken: string;
+  }) {
     const settings = await this.settings();
     const link = this.playerAccessLink(
       input.accessToken,
       settings.publicAppUrl,
     );
-    await this.send({
+    const delivery = await this.send({
       kind: 'PLAYER_ACCESS',
       recipient: input.user.phone,
       templateName: settings.playerAccessTemplate,
@@ -155,7 +162,11 @@ export class WhatsAppService {
       idempotencyKey: `player-access:${input.user.id}:${Date.now()}`,
       userId: input.user.id,
     });
-    return link;
+    return {
+      accessLink: link,
+      status: delivery.status,
+      error: delivery.error,
+    };
   }
 
   async notifyAssignment(input: {

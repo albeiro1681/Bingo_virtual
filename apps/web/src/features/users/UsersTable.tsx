@@ -11,6 +11,9 @@ type Props = {
   onAccessLink: (player: Player) => void;
   onSendAccessLink: (player: Player) => void;
   onToggleActive: (player: Player) => void;
+  selectedIds: Set<string>;
+  onToggleSelected: (id: string) => void;
+  onToggleVisible: () => void;
 };
 
 export function UsersTable({
@@ -23,6 +26,9 @@ export function UsersTable({
   onAccessLink,
   onSendAccessLink,
   onToggleActive,
+  selectedIds,
+  onToggleSelected,
+  onToggleVisible,
 }: Props) {
   if (loading)
     return (
@@ -55,6 +61,20 @@ export function UsersTable({
       <table className="users-table">
         <thead>
           <tr>
+            <th className="users-selection-column">
+              <input
+                type="checkbox"
+                aria-label="Seleccionar todos los jugadores visibles"
+                checked={players.every((player) => selectedIds.has(player.id))}
+                ref={(element) => {
+                  if (element)
+                    element.indeterminate =
+                      players.some((player) => selectedIds.has(player.id)) &&
+                      !players.every((player) => selectedIds.has(player.id));
+                }}
+                onChange={onToggleVisible}
+              />
+            </th>
             <th>Jugador</th>
             <th>WhatsApp</th>
             <th>Cartones</th>
@@ -66,6 +86,14 @@ export function UsersTable({
         <tbody>
           {players.map((player) => (
             <tr key={player.id}>
+              <td className="users-selection-column" data-label="Seleccionar">
+                <input
+                  type="checkbox"
+                  aria-label={`Seleccionar a ${player.name}`}
+                  checked={selectedIds.has(player.id)}
+                  onChange={() => onToggleSelected(player.id)}
+                />
+              </td>
               <td data-label="Jugador">
                 <strong className="user-name">{player.name}</strong>
               </td>

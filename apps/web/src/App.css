@@ -630,6 +630,8 @@ td button {
   margin: 0;
 }
 .tie-break-panel {
+  position: relative;
+  z-index: 4;
   grid-column: 1/-1;
   grid-row: 3;
   display: grid;
@@ -639,6 +641,34 @@ td button {
   border: 2px solid #d87816;
   border-radius: 1rem;
   background: #fffaf0;
+}
+.tie-break-participants {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: center;
+}
+.tie-break-participants > span {
+  color: #713c00;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tie-break-participants > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.tie-break-participants strong {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #e2bb6e;
+  border-radius: 999px;
+  background: #fff;
+  color: #713c00;
+  font-size: 0.78rem;
 }
 .tie-break-machine {
   display: grid;
@@ -855,8 +885,8 @@ td button {
   }
   .draw-view .draw-panel {
     display: grid;
-    flex: 1;
     grid-template-rows: auto minmax(0, 1fr);
+    flex: 1;
     min-height: 0;
     margin-top: 0.4rem;
     padding: 0.65rem 0.75rem 0.75rem;
@@ -1047,6 +1077,8 @@ td button {
     padding: var(--draw-viewport-inset);
   }
   .draw-view .draw-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     width: 100%;
     height: calc(
       100vh - var(--draw-viewport-inset) - var(--draw-viewport-inset)
@@ -1206,5 +1238,94 @@ td button {
   }
   .draw-view .draw-winner-banner strong {
     font-size: clamp(1.5rem, 2vw, 2.25rem);
+  }
+}
+
+@media (min-width: 981px) and (min-height: 650px) {
+  .draw-view .draw-panel.is-tie-break .draw-heading {
+    padding-bottom: clamp(0.25rem, 0.45vh, 0.4rem);
+  }
+  .draw-view .draw-panel.is-tie-break .draw-layout {
+    grid-template-columns:
+      minmax(175px, 0.65fr)
+      minmax(285px, 1fr)
+      minmax(390px, 1.55fr)
+      minmax(190px, 0.72fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: clamp(0.45rem, 0.75vw, 0.75rem);
+    overflow: visible;
+  }
+  .draw-view .draw-panel.is-tie-break .draw-status-column {
+    grid-column: 1;
+    grid-row: 1 / 3;
+  }
+  .draw-view .draw-panel.is-tie-break .draw-tie-banner {
+    position: relative;
+    z-index: 3;
+    grid-column: 2 / 5;
+    grid-row: 1;
+    gap: 0.12rem;
+    padding: clamp(0.35rem, 0.6vh, 0.55rem) 0.8rem;
+  }
+  .draw-view .draw-panel.is-tie-break .draw-tie-banner strong {
+    font-size: clamp(1.15rem, 1.5vw, 1.55rem);
+  }
+  .draw-view .draw-panel.is-tie-break .draw-tie-banner p {
+    font-size: clamp(0.72rem, 0.82vw, 0.88rem);
+  }
+  .draw-view .draw-panel.is-tie-break .tie-break-panel {
+    grid-column: 2;
+    grid-row: 2;
+    align-content: center;
+    gap: clamp(0.4rem, 0.8vh, 0.7rem);
+    min-height: 0;
+    padding: clamp(0.45rem, 0.8vh, 0.75rem);
+    overflow: visible;
+  }
+  .draw-view .draw-panel.is-tie-break .tie-break-machine {
+    width: min(100%, clamp(145px, 22vh, 205px));
+    min-height: 0;
+    aspect-ratio: 1;
+  }
+  .draw-view .draw-panel.is-tie-break .tie-break-machine strong {
+    font-size: clamp(1.35rem, 2.2vw, 2.2rem);
+  }
+  .draw-view .draw-panel.is-tie-break .tie-break-participants > div {
+    overflow: visible;
+  }
+  .draw-view .draw-panel.is-tie-break .tie-break-participants strong {
+    font-size: clamp(0.68rem, 0.76vw, 0.8rem);
+  }
+  .draw-view .draw-panel.is-tie-break .draw-history {
+    z-index: 1;
+    grid-column: 3;
+    grid-row: 2;
+    height: 100%;
+  }
+  .draw-view .draw-panel.is-tie-break .bingo-history-grid {
+    grid-template-columns: repeat(5, clamp(3.25rem, 4.2vw, 4.4rem));
+    gap: clamp(0.2rem, 0.35vw, 0.4rem);
+  }
+  .draw-view .draw-panel.is-tie-break .bingo-history-column {
+    padding: clamp(0.15rem, 0.3vh, 0.25rem);
+  }
+  .draw-view .draw-panel.is-tie-break .bingo-history-column > strong {
+    margin-bottom: 0.12rem;
+    font-size: clamp(1rem, 1.15vw, 1.25rem);
+  }
+  .draw-view .draw-panel.is-tie-break .bingo-history-column > div {
+    --history-ball-gap: clamp(0.05rem, 0.12vh, 0.1rem);
+  }
+  .draw-view .draw-panel.is-tie-break .bingo-history-column span {
+    width: clamp(1rem, calc((100vh - 18.5rem) / 15), 1.9rem);
+    font-size: clamp(0.62rem, 1.25vh, 0.9rem);
+  }
+  .draw-view .draw-panel.is-tie-break .draw-figure {
+    grid-column: 4;
+    grid-row: 2;
+  }
+  .draw-view .draw-panel.is-tie-break .draw-figure .pattern-grid {
+    width: min(100%, clamp(170px, 13vw, 220px));
   }
 }

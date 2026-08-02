@@ -14,6 +14,7 @@ Aplicación web de bingo para FECSUPOL, preparada para aproximadamente 50 jugado
 ## Módulos
 
 - Administración de sorteos, usuarios, WhatsApp y ganadores.
+- Importación de jugadores mediante CSV y envío masivo de enlaces de acceso.
 - Panel de sorteo a pantalla completa.
 - Vista del jugador mediante token de acceso.
 - Catálogo inmutable y balanceado de 130 cartones maestros.
@@ -27,6 +28,7 @@ Aplicación web de bingo para FECSUPOL, preparada para aproximadamente 50 jugado
 - Cada sorteo nuevo requiere un premio positivo en COP. El ganador conserva una copia histórica del monto ganado.
 - Si varios cartones ganadores pertenecen al mismo jugador, se registra un solo ganador y un solo premio.
 - El desempate se activa únicamente cuando existen jugadores ganadores diferentes y ofrece una candidatura por jugador.
+- Durante el desempate, la presentación compacta el histórico para mantener visibles los participantes y controles; al confirmar el ganador recupera automáticamente la distribución normal.
 - Los fallos de WhatsApp nunca revierten ni bloquean el resultado del sorteo.
 
 El detalle completo de arquitectura y requisitos está en [AGENTS.md](./AGENTS.md).

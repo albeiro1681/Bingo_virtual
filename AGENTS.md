@@ -73,6 +73,10 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 - La extracción debe presentarse como una balotera animada, pero la balota definitiva siempre la determina el backend.
 - La extracción de balotas y la elección del desempate deben utilizar una selección uniforme basada en `crypto.randomInt()`.
 - El teléfono es obligatorio para jugadores y se almacena en formato internacional E.164.
+- La administración de Usuarios permite importar jugadores desde CSV UTF-8 separado por punto y coma con las columnas `nombre;celular;cartones`; la vista previa se envía por `multipart/form-data` en el campo `file`, no guarda datos y muestra errores por fila antes de confirmar.
+- En la importación, los celulares colombianos de 10 dígitos o con prefijo 57 se normalizan a `+57` y se rechazan números que no tengan 10 dígitos nacionales o no comiencen por 3.
+- La importación valida duplicados de celular, cartones repetidos, inexistentes u ocupados; cada jugador y todos sus cartones se guardan en una transacción independiente.
+- La tabla de Usuarios permite seleccionar registros visibles o todos los resultados filtrados y enviar enlaces de acceso por WhatsApp en lote, conservando resultados individuales de enviados, fallidos y omitidos.
 - Al asignar cartones se envía por WhatsApp un enlace que contiene el token de acceso del jugador.
 - La vista del jugador consume el token del enlace, lo guarda en la sesión y limpia la URL inmediatamente.
 - Al detectar ganadores se notifica por WhatsApp al ganador y al canal configurado de FECSUPOL.
@@ -84,6 +88,7 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 - El desempate solo procede si los cartones ganadores pertenecen a jugadores diferentes, comparados por `userId`; varios cartones de un mismo jugador producen un único ganador, un único premio y ningún desempate.
 - Cuando participan varios jugadores en un empate, cada jugador debe tener una sola candidatura, aunque posea más de un cartón ganador.
 - Durante un empate, el panel administrativo debe mostrar “BINGO — EMPATE”, los números de los cartones empatados y una balotera exclusiva de desempate.
+- Mientras el sorteo esté en `TIE_BREAK`, el panel de presentación debe priorizar el desempate, compactar temporalmente el histórico, mantener visibles los participantes y el botón `Desempatar` dentro de 1366x768 y restaurar automáticamente la distribución normal al finalizar.
 - El administrador debe iniciar el desempate explícitamente mediante el botón “Desempatar”; únicamente participan los números de los cartones empatados y el backend elige un solo ganador al azar.
 - Los jugadores empatados reciben el aviso de empate dentro de la aplicación; el ganador definitivo recibe la notificación en la aplicación y por WhatsApp, sin que un fallo de WhatsApp altere el resultado.
 - La administración debe estar separada en paneles de Sorteos, Usuarios, WhatsApp y Panel de sorteo.

@@ -46,3 +46,39 @@ export type Notice = {
   tone: "success" | "warning" | "error";
   message: string;
 };
+
+export type CsvImportRow = {
+  line: number;
+  name: string;
+  phone: string | null;
+  cardNumbers: number[];
+  valid: boolean;
+  errors: Array<{ code: string; message: string }>;
+};
+
+export type CsvImportPreview = {
+  validRows: CsvImportRow[];
+  invalidRows: CsvImportRow[];
+  rows: CsvImportRow[];
+  summary: {
+    total: number;
+    valid: number;
+    invalid: number;
+    validUsers: number;
+    invalidUsers: number;
+    cardsToAssign: number;
+  };
+};
+
+export type BulkSendResult = {
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  results: Array<{
+    userId: string;
+    name?: string;
+    status: "SENT" | "FAILED" | "SKIPPED";
+    reason?: string;
+  }>;
+};

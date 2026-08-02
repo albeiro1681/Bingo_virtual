@@ -236,10 +236,11 @@ function AdminApp() {
 
   const request = useCallback(
     async (path: string, init?: RequestInit) => {
+      const isFormData = init?.body instanceof FormData;
       const response = await fetch(path, {
         ...init,
         headers: {
-          "Content-Type": "application/json",
+          ...(!isFormData ? { "Content-Type": "application/json" } : {}),
           Authorization: `Bearer ${token}`,
           ...init?.headers,
         },
@@ -1189,7 +1190,9 @@ function AdminApp() {
       )}
 
       {isDrawView && selectedGame && (
-        <section className="wide-panel draw-panel">
+        <section
+          className={`wide-panel draw-panel ${selectedGame.status === "TIE_BREAK" ? "is-tie-break" : ""}`}
+        >
           <div className="draw-heading">
             <div className="draw-title">
               <h2 title={selectedGame.name}>Sorteo: {selectedGame.name}</h2>
@@ -1301,7 +1304,17 @@ function AdminApp() {
               </div>
             )}
             {selectedGame.status === "TIE_BREAK" && (
-              <div className="tie-break-panel">
+              <div className="tie-break-panel" aria-label="Panel de desempate">
+                <div className="tie-break-participants">
+                  <span>Participantes empatados</span>
+                  <div>
+                    {tieBreakCandidates.map((candidate) => (
+                      <strong key={candidate.id}>
+                        {candidate.card.user?.name ?? "Jugador"} · cartón #{candidate.card.number}
+                      </strong>
+                    ))}
+                  </div>
+                </div>
                 <div
                   className={`tie-break-machine ${tieBreaking ? "spinning" : ""}`}
                 >
