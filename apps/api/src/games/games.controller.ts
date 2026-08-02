@@ -1,7 +1,16 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { AdminTokenGuard } from '../auth/admin-token.guard';
 import { CreateGameDto } from './dto/create-game.dto';
 import { GamesService } from './games.service';
+import { UpdateGameDto } from './dto/update-game.dto';
 
 @Controller('api/admin/games')
 @UseGuards(AdminTokenGuard)
@@ -11,6 +20,11 @@ export class GamesController {
   @Post()
   create(@Body() dto: CreateGameDto) {
     return this.games.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateGameDto) {
+    return this.games.update(id, dto);
   }
 
   @Get()

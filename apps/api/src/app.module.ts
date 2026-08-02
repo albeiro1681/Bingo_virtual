@@ -12,6 +12,7 @@ import { PlayerModule } from './player/player.module';
 import { PatternsModule } from './patterns/patterns.module';
 import { UsersModule } from './users/users.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { WinnersModule } from './winners/winners.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     PlayerModule,
     PatternsModule,
     WhatsAppModule,
+    WinnersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

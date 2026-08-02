@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 import PlayerApp from "./PlayerApp";
 import { bingoBallLabel } from "./bingo-ball";
+import { UsersPage } from "./features/users/UsersPage";
+import { WinnersPage } from "./features/winners/WinnersPage";
+import { PrizeAmountInput } from "./features/games/PrizeAmountInput";
+import { formatCop, validatePrizeAmount } from "./money";
 
 type Cell = {
   row: number;
@@ -25,12 +28,6 @@ type Player = {
     error?: string | null;
   }>;
 };
-type CardTemplate = {
-  id: string;
-  number: number;
-  cells: Cell[];
-  card?: { id: string; user: Pick<Player, "id" | "name"> } | null;
-};
 type TieBreakCard = {
   id: string;
   number: number;
@@ -45,17 +42,13 @@ type Game = {
   patternName?: string | null;
   winningCells: Cell[];
   endedManually: boolean;
+  prizeAmount?: string | null;
+  currencyCode: string;
+  startedAt?: string | null;
   finalWinnerId?: string | null;
   finalWinner?: TieBreakCard | null;
   tieBreakCandidates: Array<{ id: string; card: TieBreakCard }>;
   _count: { cards: number; drawnBalls: number; winners: number };
-};
-type Card = {
-  id: string;
-  serial: string;
-  number: number;
-  user: Player;
-  cells: Cell[];
 };
 type Winner = {
   id: string;
@@ -113,11 +106,17 @@ function gameStatusLabel(status: string) {
   );
 }
 
-function deliveryStatusLabel(status: string) {
-  return (
-    { PENDING: "Pendiente", SENT: "Enviado", FAILED: "Fallido" }[status] ??
-    "Desconocido"
-  );
+function storedAnnouncedWinnerGames(): string[] {
+  try {
+    const stored = JSON.parse(
+      sessionStorage.getItem("fecs-announced-winner-games") ?? "[]",
+    ) as unknown;
+    return Array.isArray(stored)
+      ? stored.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function PatternGrid({
@@ -161,41 +160,37 @@ function PatternGrid({
 function AdminApp() {
   const isDrawView = window.location.pathname.startsWith("/draw");
   const isUsersView = window.location.pathname.startsWith("/admin/users");
+  const isWinnersView = window.location.pathname.startsWith("/admin/winners");
   const isWhatsAppView = window.location.pathname.startsWith("/admin/whatsapp");
-  const isGamesView = !isDrawView && !isUsersView && !isWhatsAppView;
+  const isGamesView =
+    !isDrawView && !isUsersView && !isWinnersView && !isWhatsAppView;
   const [token, setToken] = useState(
     () => sessionStorage.getItem("fecs-admin-token") ?? "",
   );
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [players, setPlayers] = useState<Player[]>([]);
   const [patterns, setPatterns] = useState<Pattern[]>([]);
   const [games, setGames] = useState<Game[]>([]);
-  const [cards, setCards] = useState<Card[]>([]);
-  const [cardCatalog, setCardCatalog] = useState<CardTemplate[]>([]);
   const [winners, setWinners] = useState<Winner[]>([]);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [activePlayers, setActivePlayers] = useState<Player[]>([]);
   const [selectedGameId, setSelectedGameId] = useState(
     () => new URLSearchParams(window.location.search).get("game") ?? "",
   );
-  const [playerName, setPlayerName] = useState("");
-  const [playerPhone, setPlayerPhone] = useState("+57");
   const [patternName, setPatternName] = useState("");
   const [selectedCells, setSelectedCells] = useState<Cell[]>([]);
   const [gameName, setGameName] = useState("");
+  const [gamePrizeAmount, setGamePrizeAmount] = useState("");
+  const [gamePrizeError, setGamePrizeError] = useState("");
   const [winMode, setWinMode] = useState<"FULL_CARD" | "FIGURE">("FULL_CARD");
   const [patternId, setPatternId] = useState("");
-  const [cardPlayerId, setCardPlayerId] = useState("");
-  const [cardNumbers, setCardNumbers] = useState<number[]>([]);
+  const [editingGame, setEditingGame] = useState<Game | null>(null);
+  const [editGameName, setEditGameName] = useState("");
+  const [editGamePrizeAmount, setEditGamePrizeAmount] = useState("");
+  const [editGamePrizeError, setEditGamePrizeError] = useState("");
   const [message, setMessage] = useState("");
   const [connectionMessage, setConnectionMessage] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
-  const [issuedLink, setIssuedLink] = useState("");
-  const [editingPlayerId, setEditingPlayerId] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [editActive, setEditActive] = useState(true);
   const [whatsappSettings, setWhatsappSettings] =
     useState<WhatsAppSettings | null>(null);
   const [whatsappToken, setWhatsappToken] = useState("");
@@ -205,9 +200,39 @@ function AdminApp() {
   const [rollingCardNumber, setRollingCardNumber] = useState<number | null>(
     null,
   );
+  const [visibleWinnerId, setVisibleWinnerId] = useState("");
+  const announcedWinnerGameIdsRef = useRef(
+    new Set<string>(storedAnnouncedWinnerGames()),
+  );
+  const winnerTimerRef = useRef<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const drawingRef = useRef(false);
+
+  const openDrawPanel = useCallback(
+    (gameId?: string) => {
+      const destination = new URL("/draw", window.location.origin);
+      if (gameId) destination.searchParams.set("game", gameId);
+
+      const panelWindow = window.open("", "_blank");
+      if (!panelWindow) {
+        setMessage(
+          "El navegador bloqueó la nueva pestaña. Permite ventanas emergentes para abrir el panel de sorteo.",
+        );
+        return;
+      }
+
+      try {
+        panelWindow.sessionStorage.setItem("fecs-admin-token", token);
+        panelWindow.opener = null;
+        panelWindow.location.replace(destination.href);
+      } catch {
+        panelWindow.close();
+        setMessage("No fue posible abrir el panel de sorteo de forma segura.");
+      }
+    },
+    [token],
+  );
 
   const request = useCallback(
     async (path: string, init?: RequestInit) => {
@@ -254,11 +279,8 @@ function AdminApp() {
     if (!token) return;
     try {
       const results = await Promise.allSettled([
-        request("/api/admin/users"),
         request("/api/admin/patterns"),
         request("/api/admin/games"),
-        request("/api/admin/cards"),
-        request("/api/admin/cards/catalog"),
         request("/api/admin/whatsapp/settings"),
       ]);
       const unauthorized = results.find(
@@ -270,11 +292,8 @@ function AdminApp() {
       if (unauthorized && unauthorized.status === "rejected")
         throw unauthorized.reason;
       const setters = [
-        (value: unknown) => setPlayers(value as Player[]),
         (value: unknown) => setPatterns(value as Pattern[]),
         (value: unknown) => setGames(value as Game[]),
-        (value: unknown) => setCards(value as Card[]),
-        (value: unknown) => setCardCatalog(value as CardTemplate[]),
         (value: unknown) => setWhatsappSettings(value as WhatsAppSettings),
       ];
       results.forEach((result, index) => {
@@ -320,8 +339,51 @@ function AdminApp() {
     void refresh();
   }, [refresh]);
   useEffect(() => {
+    if (!isDrawView || selectedGameId || !games.length) return;
+    const game =
+      games.find(
+        (candidate) =>
+          candidate.status === "ACTIVE" || candidate.status === "TIE_BREAK",
+      ) ?? games[0];
+    setSelectedGameId(game.id);
+    window.history.replaceState(null, "", `/draw?game=${game.id}`);
+  }, [games, isDrawView, selectedGameId]);
+  useEffect(() => {
     void loadGameState(selectedGameId);
   }, [loadGameState, selectedGameId]);
+  useEffect(() => {
+    const confirmedWinnerId = gameState?.finalWinnerId;
+    const confirmedWinner = confirmedWinnerId
+      ? gameState?.winners.find(
+          (winner) => winner.card.id === confirmedWinnerId,
+        )
+      : gameState?.status === "FINISHED" && gameState.winners.length === 1
+        ? gameState.winners[0]
+        : undefined;
+    if (
+      !confirmedWinner ||
+      !gameState?.id ||
+      announcedWinnerGameIdsRef.current.has(gameState.id)
+    )
+      return;
+    announcedWinnerGameIdsRef.current.add(gameState.id);
+    sessionStorage.setItem(
+      "fecs-announced-winner-games",
+      JSON.stringify([...announcedWinnerGameIdsRef.current]),
+    );
+    setVisibleWinnerId(confirmedWinner.id);
+    if (winnerTimerRef.current) window.clearTimeout(winnerTimerRef.current);
+    winnerTimerRef.current = window.setTimeout(
+      () => setVisibleWinnerId(""),
+      8000,
+    );
+  }, [gameState]);
+  useEffect(
+    () => () => {
+      if (winnerTimerRef.current) window.clearTimeout(winnerTimerRef.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (!token) return;
     const socket = io("/draws", { auth: { token } });
@@ -461,22 +523,14 @@ function AdminApp() {
     (game) => game.status === "ACTIVE" || game.status === "TIE_BREAK",
   );
   const pageTitle = isDrawView
-    ? "Panel de sorteo"
+    ? "Sorteo en vivo"
     : isUsersView
       ? "Administración de usuarios"
-      : isWhatsAppView
-        ? "Configuración de WhatsApp"
-        : "Administración de sorteos";
-  const editingPlayer = players.find((player) => player.id === editingPlayerId);
-  const assignedNumbers = new Set(cards.map((card) => card.number));
-  const beginEditPlayer = (player: Player) => {
-    setEditingPlayerId(player.id);
-    setEditName(player.name);
-    setEditPhone(player.phone ?? "+57");
-    setEditActive(player.active);
-    setCardPlayerId(player.id);
-    setCardNumbers(player.cards?.map((card) => card.number) ?? []);
-  };
+      : isWinnersView
+        ? "Ganadores"
+        : isWhatsAppView
+          ? "Configuración de WhatsApp"
+          : "Administración de sorteos";
   const drawBall = async () => {
     if (!selectedGame || drawingRef.current) return;
     drawingRef.current = true;
@@ -576,7 +630,7 @@ function AdminApp() {
   return (
     <main
       aria-busy={submitting}
-      className={`admin ${isDrawView ? "draw-view" : isUsersView ? "users-view" : isWhatsAppView ? "whatsapp-view" : "games-view"}`}
+      className={`admin ${isDrawView ? "draw-view" : isUsersView ? "users-view" : isWinnersView ? "winners-view" : isWhatsAppView ? "whatsapp-view" : "games-view"}`}
     >
       <header>
         <div>
@@ -589,13 +643,25 @@ function AdminApp() {
             <a className={isUsersView ? "active" : ""} href="/admin/users">
               Usuarios
             </a>
+            <a className={isWinnersView ? "active" : ""} href="/admin/winners">
+              Ganadores
+            </a>
             <a
               className={isWhatsAppView ? "active" : ""}
               href="/admin/whatsapp"
             >
               WhatsApp
             </a>
-            <a className={isDrawView ? "active" : ""} href="/draw">
+            <a
+              className={isDrawView ? "active" : ""}
+              href="/draw"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(event) => {
+                event.preventDefault();
+                openDrawPanel();
+              }}
+            >
               Panel de sorteo
             </a>
           </nav>
@@ -624,259 +690,9 @@ function AdminApp() {
           {connectionMessage}
         </p>
       )}
-      {isUsersView && issuedLink && (
-        <aside className="token-notice">
-          <strong>Enlace de acceso del jugador:</strong>
-          <a href={issuedLink} target="_blank" rel="noreferrer">
-            {issuedLink}
-          </a>
-          <button
-            type="button"
-            onClick={() => void navigator.clipboard.writeText(issuedLink)}
-          >
-            Copiar enlace
-          </button>
-          <button type="button" onClick={() => setIssuedLink("")}>
-            Ocultar
-          </button>
-        </aside>
-      )}
+      {isUsersView && <UsersPage request={request} />}
+      {isWinnersView && <WinnersPage request={request} games={games} />}
       <div className="panels admin-only">
-        <section className="panel users-section">
-          <h2>Jugadores</h2>
-          <form
-            onSubmit={(event: FormEvent) => {
-              event.preventDefault();
-              void submit(async () => {
-                const player = (await request("/api/admin/users", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    name: playerName,
-                    phone: playerPhone,
-                  }),
-                })) as Player & { accessLink: string };
-                setIssuedLink(player.accessLink);
-                setPlayerName("");
-                setPlayerPhone("+57");
-              });
-            }}
-          >
-            <label>
-              Nombre
-              <input
-                required
-                minLength={2}
-                value={playerName}
-                onChange={(event) => setPlayerName(event.target.value)}
-              />
-            </label>
-            <label>
-              WhatsApp
-              <input
-                required
-                inputMode="tel"
-                pattern="\+[1-9][0-9]{7,14}"
-                value={playerPhone}
-                onChange={(event) => setPlayerPhone(event.target.value)}
-              />
-            </label>
-            <button className="primary" disabled={submitting}>
-              {submitting ? "Guardando…" : "Crear jugador"}
-            </button>
-          </form>
-          <ul className="compact-list player-management">
-            {players.map((player) => (
-              <li key={player.id}>
-                <span>
-                  {player.name}{" "}
-                  <small>
-                    {player.phone} · {player.cards?.length ?? 0} cartón(es)
-                  </small>
-                </span>
-                <button type="button" onClick={() => beginEditPlayer(player)}>
-                  Gestionar
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {editingPlayer && (
-          <form
-            className="panel users-section"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit(async () => {
-                await request(`/api/admin/cards/player/${editingPlayer.id}`, {
-                  method: "PUT",
-                  body: JSON.stringify({
-                    name: editName,
-                    phone: editPhone,
-                    active: editActive,
-                    cardNumbers,
-                  }),
-                });
-              });
-            }}
-          >
-            <h2>Editar jugador</h2>
-            <label>
-              Nombre
-              <input
-                required
-                minLength={2}
-                value={editName}
-                onChange={(event) => setEditName(event.target.value)}
-              />
-            </label>
-            <label>
-              WhatsApp
-              <input
-                required
-                pattern="\+[1-9][0-9]{7,14}"
-                value={editPhone}
-                onChange={(event) => setEditPhone(event.target.value)}
-              />
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={editActive}
-                onChange={(event) => setEditActive(event.target.checked)}
-              />{" "}
-              Jugador activo
-            </label>
-            <p>
-              Cartones:{" "}
-              {cardNumbers.length
-                ? cardNumbers.sort((a, b) => a - b).join(", ")
-                : "ninguno"}
-            </p>
-            <div className="number-picker">
-              {cardCatalog.map((template) => {
-                const owned = template.card?.user.id === editingPlayer.id;
-                const unavailable = Boolean(template.card) && !owned;
-                const selected = cardNumbers.includes(template.number);
-                return (
-                  <button
-                    type="button"
-                    key={template.id}
-                    className={selected ? "selected" : ""}
-                    title={
-                      unavailable
-                        ? `Asignado a ${template.card?.user.name}`
-                        : `Cartón ${template.number}`
-                    }
-                    onClick={() => {
-                      if (
-                        unavailable &&
-                        !window.confirm(
-                          `¿Reasignar el cartón ${template.number} de ${template.card?.user.name} a ${editingPlayer.name}?`,
-                        )
-                      )
-                        return;
-                      setCardNumbers((current) =>
-                        current.includes(template.number)
-                          ? current.filter(
-                              (number) => number !== template.number,
-                            )
-                          : [...current, template.number],
-                      );
-                    }}
-                  >
-                    {template.number}
-                  </button>
-                );
-              })}
-            </div>
-            <button className="primary" disabled={submitting}>
-              {submitting ? "Guardando…" : "Guardar usuario y cartones"}
-            </button>
-            <div className="inline-actions">
-              <button
-                type="button"
-                onClick={() =>
-                  void submit(async () => {
-                    const result = (await request(
-                      `/api/admin/users/${editingPlayer.id}/access-link`,
-                    )) as { accessLink: string };
-                    setIssuedLink(result.accessLink);
-                  })
-                }
-              >
-                Ver enlace
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void submit(async () => {
-                    const result = (await request(
-                      `/api/admin/users/${editingPlayer.id}/access-link/send`,
-                      { method: "POST" },
-                    )) as { accessLink: string };
-                    setIssuedLink(result.accessLink);
-                  })
-                }
-              >
-                Enviar enlace
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "¿Regenerar el enlace? El anterior dejará de funcionar.",
-                    )
-                  )
-                    void submit(async () => {
-                      const result = (await request(
-                        `/api/admin/users/${editingPlayer.id}/access-link/regenerate`,
-                        { method: "POST" },
-                      )) as { accessLink: string };
-                      setIssuedLink(result.accessLink);
-                    });
-                }}
-              >
-                Regenerar
-              </button>
-              <button type="button" onClick={() => setEditingPlayerId("")}>
-                Cerrar
-              </button>
-            </div>
-            {editingPlayer.whatsappDeliveries?.[0] && (
-              <small>
-                Último envío:{" "}
-                {deliveryStatusLabel(
-                  editingPlayer.whatsappDeliveries[0].status,
-                )}
-                {editingPlayer.whatsappDeliveries[0].error
-                  ? ` · ${editingPlayer.whatsappDeliveries[0].error}`
-                  : ""}
-              </small>
-            )}
-            {editingPlayer.whatsappDeliveries?.[0] &&
-              editingPlayer.whatsappDeliveries[0].status !== "SENT" && (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() =>
-                    void submit(async () => {
-                      await request(
-                        `/api/admin/whatsapp/deliveries/${editingPlayer.whatsappDeliveries![0].id}/retry`,
-                        { method: "POST" },
-                      );
-                    })
-                  }
-                >
-                  {editingPlayer.whatsappDeliveries[0].status === "FAILED"
-                    ? "Reintentar envío de WhatsApp"
-                    : "Enviar ahora por WhatsApp"}
-                </button>
-              )}
-          </form>
-        )}
-
         {whatsappSettings && (
           <form
             className="panel whatsapp-section"
@@ -1096,16 +912,22 @@ function AdminApp() {
           className="panel games-section"
           onSubmit={(event) => {
             event.preventDefault();
+            const prizeError = validatePrizeAmount(gamePrizeAmount);
+            setGamePrizeError(prizeError);
+            if (prizeError) return;
             void submit(async () => {
               await request("/api/admin/games", {
                 method: "POST",
                 body: JSON.stringify({
                   name: gameName,
+                  prizeAmount: Number(gamePrizeAmount),
                   winMode,
                   ...(winMode === "FIGURE" ? { patternId } : {}),
                 }),
               });
               setGameName("");
+              setGamePrizeAmount("");
+              setGamePrizeError("");
             });
           }}
         >
@@ -1119,6 +941,15 @@ function AdminApp() {
               onChange={(event) => setGameName(event.target.value)}
             />
           </label>
+          <PrizeAmountInput
+            value={gamePrizeAmount}
+            error={gamePrizeError}
+            disabled={submitting}
+            onChange={(value) => {
+              setGamePrizeAmount(value);
+              setGamePrizeError("");
+            }}
+          />
           <label>
             Forma de ganar
             <select
@@ -1158,88 +989,6 @@ function AdminApp() {
             </small>
           )}
         </form>
-
-        <form
-          className="panel card-assignment users-section"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit(async () => {
-              await request("/api/admin/cards/generate", {
-                method: "POST",
-                body: JSON.stringify({ userId: cardPlayerId, cardNumbers }),
-              });
-              setCardNumbers([]);
-            });
-          }}
-        >
-          <h2>Asignar cartones fijos</h2>
-          <p>La asignación será permanente y aplicará a todos los sorteos.</p>
-          {!cardCatalog.length && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() =>
-                void submit(async () => {
-                  await request("/api/admin/cards/catalog/initialize", {
-                    method: "POST",
-                  });
-                })
-              }
-            >
-              Generar catálogo 1–130
-            </button>
-          )}
-          <label>
-            Jugador
-            <select
-              required
-              value={cardPlayerId}
-              onChange={(event) => setCardPlayerId(event.target.value)}
-            >
-              <option value="">Selecciona</option>
-              {players.map((player) => (
-                <option key={player.id} value={player.id}>
-                  {player.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="number-picker">
-            {cardCatalog.map((template) => {
-              const unavailable = assignedNumbers.has(template.number);
-              const selected = cardNumbers.includes(template.number);
-              return (
-                <button
-                  type="button"
-                  key={template.id}
-                  disabled={unavailable}
-                  title={
-                    unavailable
-                      ? `Asignado a ${template.card?.user.name ?? "otro jugador"}`
-                      : `Cartón ${template.number}`
-                  }
-                  className={selected ? "selected" : ""}
-                  onClick={() =>
-                    setCardNumbers((current) =>
-                      current.includes(template.number)
-                        ? current.filter((number) => number !== template.number)
-                        : [...current, template.number],
-                    )
-                  }
-                >
-                  {template.number}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            className="primary"
-            disabled={!cardNumbers.length || submitting}
-          >
-            Asignar permanentemente {cardNumbers.length || ""} cartón(es) y
-            enviar WhatsApp
-          </button>
-        </form>
       </div>
 
       <section className="wide-panel admin-only games-section games-table-panel">
@@ -1251,6 +1000,7 @@ function AdminApp() {
                 <th>Nombre</th>
                 <th>Modalidad</th>
                 <th>Estado</th>
+                <th>Premio</th>
                 <th>Cartones</th>
                 <th>Balotas</th>
                 <th>Ganadores</th>
@@ -1267,6 +1017,9 @@ function AdminApp() {
                       : "Cartón completo"}
                   </td>
                   <td>{gameStatusLabel(game.status)}</td>
+                  <td className="game-prize-cell">
+                    {formatCop(game.prizeAmount)}
+                  </td>
                   <td>{game._count.cards}</td>
                   <td>{game._count.drawnBalls}</td>
                   <td>{game._count.winners}</td>
@@ -1275,9 +1028,30 @@ function AdminApp() {
                       <a
                         className="table-action"
                         href={`/draw?game=${game.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          openDrawPanel(game.id);
+                        }}
                       >
                         Abrir panel
                       </a>
+                      {game.status === "DRAFT" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingGame(game);
+                            setEditGameName(game.name);
+                            setEditGamePrizeAmount(
+                              game.prizeAmount ? String(game.prizeAmount) : "",
+                            );
+                            setEditGamePrizeError("");
+                          }}
+                        >
+                          Editar
+                        </button>
+                      )}
                       {game.status === "DRAFT" && (
                         <button
                           disabled={hasBlockingGame || submitting}
@@ -1307,6 +1081,95 @@ function AdminApp() {
         </div>
       </section>
 
+      {editingGame && (
+        <div
+          className="game-edit-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !submitting)
+              setEditingGame(null);
+          }}
+        >
+          <form
+            className="game-edit-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-game-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !submitting) setEditingGame(null);
+            }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const prizeError = validatePrizeAmount(editGamePrizeAmount);
+              setEditGamePrizeError(prizeError);
+              if (prizeError) return;
+              void submit(async () => {
+                await request(`/api/admin/games/${editingGame.id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({
+                    name: editGameName,
+                    prizeAmount: Number(editGamePrizeAmount),
+                  }),
+                });
+                setEditingGame(null);
+              });
+            }}
+          >
+            <header>
+              <div>
+                <span>Sorteo en borrador</span>
+                <h2 id="edit-game-title">Editar sorteo</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Cerrar edición"
+                disabled={submitting}
+                onClick={() => setEditingGame(null)}
+              >
+                ×
+              </button>
+            </header>
+            <div className="game-edit-fields">
+              <label>
+                Nombre
+                <input
+                  autoFocus
+                  required
+                  minLength={2}
+                  maxLength={120}
+                  value={editGameName}
+                  onChange={(event) => setEditGameName(event.target.value)}
+                />
+              </label>
+              <PrizeAmountInput
+                value={editGamePrizeAmount}
+                error={editGamePrizeError}
+                disabled={submitting}
+                onChange={(value) => {
+                  setEditGamePrizeAmount(value);
+                  setEditGamePrizeError("");
+                }}
+              />
+              <p>
+                El premio solo puede modificarse antes de iniciar el sorteo.
+              </p>
+            </div>
+            <footer>
+              <button
+                type="button"
+                className="secondary"
+                disabled={submitting}
+                onClick={() => setEditingGame(null)}
+              >
+                Cancelar
+              </button>
+              <button className="primary" disabled={submitting}>
+                {submitting ? "Guardando…" : "Guardar cambios"}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
+
       {isDrawView && (
         <section className="wide-panel draw-selector">
           <h2>Seleccionar sorteo</h2>
@@ -1328,49 +1191,99 @@ function AdminApp() {
       {isDrawView && selectedGame && (
         <section className="wide-panel draw-panel">
           <div className="draw-heading">
-            <div>
-              <h2>Panel de sorteo: {selectedGame.name}</h2>
+            <div className="draw-title">
+              <h2 title={selectedGame.name}>Sorteo: {selectedGame.name}</h2>
               <p>
                 {selectedGame.winningType === "CUSTOM"
                   ? `Figura: ${selectedGame.patternName}`
                   : "Objetivo: llenar el cartón"}
               </p>
+              <p>
+                <span
+                  className={`draw-status-badge status-${selectedGame.status.toLowerCase()}`}
+                >
+                  Estado: {gameStatusLabel(selectedGame.status)}
+                </span>
+              </p>
               {selectedGame.endedManually && (
                 <p>Este sorteo terminó anticipadamente.</p>
               )}
             </div>
-            {selectedGame.status === "ACTIVE" && (
-              <div className="draw-actions">
-                <button
-                  className="draw-button"
-                  disabled={drawing}
-                  onClick={() => void drawBall()}
-                >
-                  {drawing ? "Balotera girando…" : "Girar balotera"}
-                </button>
-                <button
-                  className="danger"
-                  disabled={drawing}
-                  onClick={() => void finishGame()}
-                >
-                  Terminar sorteo
-                </button>
-              </div>
-            )}
+            <div
+              className={`draw-prize ${selectedGame.prizeAmount ? "has-prize" : "is-missing"}`}
+              aria-label={
+                selectedGame.prizeAmount
+                  ? `Premio ${formatCop(selectedGame.prizeAmount)}`
+                  : "Premio no registrado"
+              }
+            >
+              <span>PREMIO</span>
+              <strong>{formatCop(selectedGame.prizeAmount)}</strong>
+            </div>
+            <div className="draw-heading-actions">
+              {selectedGame.status === "ACTIVE" && (
+                <div className="draw-actions">
+                  <button
+                    className="draw-button"
+                    disabled={drawing}
+                    onClick={() => void drawBall()}
+                  >
+                    {drawing ? "Balotera girando…" : "Girar balotera"}
+                  </button>
+                  <button
+                    className="danger"
+                    disabled={drawing}
+                    onClick={() => void finishGame()}
+                  >
+                    Terminar sorteo
+                  </button>
+                </div>
+              )}
+              {selectedGame.status === "FINISHED" && displayedWinners[0] && (
+                <div className="final-winner-summary" aria-live="polite">
+                  <span>Ganador</span>
+                  <strong>{displayedWinners[0].card.user.name}</strong>
+                  <small>
+                    Cartón #{displayedWinners[0].card.number ?? "—"}
+                  </small>
+                </div>
+              )}
+            </div>
           </div>
           <div className="draw-layout">
-            <div className={`last-ball ${drawing ? "spinning" : ""}`}>
-              <span>{drawing ? "Girando" : "Última balota"}</span>
-              <strong>
-                {drawing
-                  ? rollingNumber
-                    ? bingoBallLabel(rollingNumber)
-                    : "—"
-                  : gameState?.drawnBalls.at(-1)
-                    ? bingoBallLabel(gameState.drawnBalls.at(-1)!.number)
-                    : "—"}
-              </strong>
-              <small>{gameState?.drawnBalls.length ?? 0} de 75</small>
+            <div className="draw-status-column">
+              <div className={`last-ball ${drawing ? "spinning" : ""}`}>
+                <span>{drawing ? "Girando" : "Última balota"}</span>
+                <strong>
+                  {drawing
+                    ? rollingNumber
+                      ? bingoBallLabel(rollingNumber)
+                      : "—"
+                    : gameState?.drawnBalls.at(-1)
+                      ? bingoBallLabel(gameState.drawnBalls.at(-1)!.number)
+                      : "—"}
+                </strong>
+                <small>{gameState?.drawnBalls.length ?? 0} de 75</small>
+              </div>
+              <div
+                className="draw-presence"
+                aria-label="Participación del sorteo"
+              >
+                <div>
+                  <span>Cartones jugando</span>
+                  <strong>{selectedGame._count.cards}</strong>
+                </div>
+                <div>
+                  <span>
+                    <i
+                      className={connectionMessage ? "is-offline" : ""}
+                      aria-hidden="true"
+                    />{" "}
+                    Jugadores conectados
+                  </span>
+                  <strong>{activePlayers.length}</strong>
+                </div>
+              </div>
             </div>
             {selectedGame.status === "TIE_BREAK" && (
               <div
@@ -1413,7 +1326,8 @@ function AdminApp() {
               </div>
             )}
             {selectedGame.status !== "TIE_BREAK" &&
-              displayedWinners.length > 0 && (
+              displayedWinners[0] &&
+              displayedWinners[0].id === visibleWinnerId && (
                 <div
                   className="draw-winner-banner"
                   role="alert"
@@ -1429,6 +1343,9 @@ function AdminApp() {
                     {displayedWinners[0].card.user.name} — cartón #
                     {displayedWinners[0].card.number ?? "—"}
                   </strong>
+                  <small className="draw-winner-prize">
+                    Premio {formatCop(selectedGame.prizeAmount)}
+                  </small>
                 </div>
               )}
             <div className="draw-history">
@@ -1443,6 +1360,10 @@ function AdminApp() {
                           (ball) =>
                             ball.number >= column.min &&
                             ball.number <= column.max,
+                        )
+                        .slice()
+                        .sort(
+                          (first, second) => second.drawOrder - first.drawOrder,
                         )
                         .map((ball) => (
                           <span key={ball.id}>{ball.number}</span>
@@ -1460,66 +1381,9 @@ function AdminApp() {
                 <p>Cartón completo</p>
               )}
             </div>
-            <div className="active-players">
-              <h3>Jugadores activos ({activePlayers.length})</h3>
-              <div className="active-players-list">
-                {activePlayers.length ? (
-                  <ul>
-                    {activePlayers.map((player) => (
-                      <li key={player.id}>{player.name}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No hay jugadores conectados.</p>
-                )}
-              </div>
-            </div>
-            <div>
-              <h3>
-                {selectedGame.status === "TIE_BREAK"
-                  ? "Cartones empatados"
-                  : "Ganador definitivo"}
-              </h3>
-              {selectedGame.status === "TIE_BREAK" ? (
-                <ul>
-                  {tieBreakCandidates.map((candidate) => (
-                    <li key={candidate.id}>
-                      {candidate.card.user?.name} — cartón #
-                      {candidate.card.number}
-                    </li>
-                  ))}
-                </ul>
-              ) : displayedWinners.length ? (
-                <ul>
-                  {displayedWinners.map((winner) => (
-                    <li key={winner.id}>
-                      {winner.card.user.name} — cartón #
-                      {winner.card.number ?? "—"}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>Aún no hay ganador.</p>
-              )}
-            </div>
           </div>
         </section>
       )}
-
-      <section className="wide-panel admin-only users-section">
-        <h2>Cartones asignados permanentemente ({cards.length})</h2>
-        <div className="card-list">
-          {cards.map((card) => (
-            <article key={card.id}>
-              <strong>
-                Cartón #{card.number} · {card.user.name}
-              </strong>
-              <span>Válido para todos los sorteos</span>
-              <small>{card.serial}</small>
-            </article>
-          ))}
-        </div>
-      </section>
     </main>
   );
 }

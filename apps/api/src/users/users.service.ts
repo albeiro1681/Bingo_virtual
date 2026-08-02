@@ -39,7 +39,7 @@ export class UsersService {
         active: true,
         createdAt: true,
         cards: {
-          select: { id: true, number: true, serial: true },
+          select: { id: true, number: true, serial: true, createdAt: true },
           orderBy: { number: 'asc' },
         },
       },
@@ -67,7 +67,7 @@ export class UsersService {
         active: true,
         createdAt: true,
         cards: {
-          select: { id: true, number: true, serial: true },
+          select: { id: true, number: true, serial: true, createdAt: true },
           orderBy: { number: 'asc' },
         },
         whatsappDeliveries: {

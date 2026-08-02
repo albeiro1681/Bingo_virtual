@@ -4,6 +4,10 @@ import type { DrawsGateway } from './draws.gateway';
 import type { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { DrawsService } from './draws.service';
 
+jest.mock('./secure-random', () => ({
+  selectSecureRandom: jest.fn((values: unknown[]) => values[0]),
+}));
+
 describe('DrawsService', () => {
   const notifyWinners = jest.fn().mockResolvedValue(undefined);
   const whatsapp = { notifyWinners } as unknown as WhatsAppService;
@@ -87,9 +91,10 @@ describe('DrawsService', () => {
   });
 
   it('persists every simultaneous bingo as a tie-break candidate', async () => {
-    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
-    const cards = ['card-1', 'card-2'].map((id) => ({
+    const cards = ['card-1', 'card-2'].map((id, index) => ({
       id,
+      number: index + 1,
+      userId: `user-${index + 1}`,
       cells: Array.from({ length: 25 }, (_, index) => ({
         row: Math.floor(index / 5),
         column: index % 5,
@@ -167,7 +172,6 @@ describe('DrawsService', () => {
     const result = await new DrawsService(prisma, gateway, whatsapp).draw(
       'game-1',
     );
-    random.mockRestore();
 
     expect(result.tied).toBe(true);
     expect(tx.tieBreakCandidate.createMany).toHaveBeenCalledWith({
@@ -183,6 +187,180 @@ describe('DrawsService', () => {
       finishedAt: null,
     });
     expect(notifyWinners).not.toHaveBeenCalled();
+  });
+
+  it('declares one winner without a tie when multiple winning cards belong to the same player', async () => {
+    const cards = [
+      { id: 'card-2', number: 22 },
+      { id: 'card-1', number: 7 },
+    ].map((card) => ({
+      ...card,
+      userId: 'user-1',
+      cells: Array.from({ length: 25 }, (_, index) => ({
+        row: Math.floor(index / 5),
+        column: index % 5,
+        number: index === 12 ? null : index + 1,
+        isFree: index === 12,
+      })),
+    }));
+    const persistedWinner = {
+      id: 'winner-1',
+      card: {
+        ...cards[1],
+        user: {
+          id: 'user-1',
+          name: 'Una jugadora',
+          phone: '+573001234567',
+        },
+      },
+    };
+    const tx = {
+      game: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'game-1',
+          name: 'Un solo jugador',
+          status: 'ACTIVE',
+          winningType: 'CUSTOM',
+          drawnBalls: [],
+          winningCells: [{ row: 0, column: 0 }],
+          prizeAmount: 1500000,
+          currencyCode: 'COP',
+          finalWinnerId: null,
+          startedAt: new Date(),
+          finishedAt: null,
+          endedManually: false,
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'game-1',
+          name: 'Un solo jugador',
+          status: 'FINISHED',
+          finalWinnerId: 'card-1',
+          prizeAmount: 1500000,
+          currencyCode: 'COP',
+        }),
+      },
+      card: { findMany: jest.fn().mockResolvedValue(cards) },
+      drawnBall: {
+        create: jest
+          .fn()
+          .mockResolvedValue({ id: 'ball-1', number: 1, drawOrder: 1 }),
+      },
+      tieBreakCandidate: { createMany: jest.fn() },
+      winner: { upsert: jest.fn().mockResolvedValue(persistedWinner) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const gateway = {
+      ballDrawn: jest.fn(),
+      winnersDetected: jest.fn(),
+      gameUpdated: jest.fn(),
+    } as unknown as DrawsGateway;
+
+    const result = await new DrawsService(prisma, gateway, whatsapp).draw(
+      'game-1',
+    );
+
+    expect(result.tied).toBe(false);
+    expect(tx.tieBreakCandidate.createMany).not.toHaveBeenCalled();
+    expect(tx.game.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FINISHED',
+          finalWinnerId: 'card-1',
+        }) as unknown,
+      }),
+    );
+    expect(tx.winner.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.winner.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          cardId: 'card-1',
+          playerId: 'user-1',
+          prizeAmount: 1500000,
+        }) as unknown,
+      }),
+    );
+    expect(result.winners).toHaveLength(1);
+  });
+
+  it('copies the game prize into the definitive winner record', async () => {
+    const card = {
+      id: 'card-1',
+      userId: 'user-1',
+      cells: Array.from({ length: 25 }, (_, index) => ({
+        row: Math.floor(index / 5),
+        column: index % 5,
+        number: index === 12 ? null : index + 1,
+        isFree: index === 12,
+      })),
+    };
+    const winner = {
+      id: 'winner-1',
+      card: {
+        ...card,
+        number: 7,
+        user: { id: 'user-1', name: 'Ana', phone: '+573001234567' },
+      },
+    };
+    const tx = {
+      game: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'game-1',
+          name: 'Premiado',
+          status: 'ACTIVE',
+          winningType: 'CUSTOM',
+          drawnBalls: [],
+          winningCells: [{ row: 0, column: 0 }],
+          prizeAmount: 1500000,
+          currencyCode: 'COP',
+          finalWinnerId: null,
+          startedAt: new Date(),
+          finishedAt: null,
+          endedManually: false,
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'game-1',
+          name: 'Premiado',
+          status: 'FINISHED',
+          prizeAmount: 1500000,
+          currencyCode: 'COP',
+        }),
+      },
+      card: { findMany: jest.fn().mockResolvedValue([card]) },
+      drawnBall: {
+        create: jest
+          .fn()
+          .mockResolvedValue({ id: 'ball-1', number: 1, drawOrder: 1 }),
+      },
+      tieBreakCandidate: { createMany: jest.fn() },
+      winner: { upsert: jest.fn().mockResolvedValue(winner) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const gateway = {
+      ballDrawn: jest.fn(),
+      winnersDetected: jest.fn(),
+      gameUpdated: jest.fn(),
+    } as unknown as DrawsGateway;
+
+    await new DrawsService(prisma, gateway, whatsapp).draw('game-1');
+
+    expect(tx.winner.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          prizeAmount: 1500000,
+          playerId: 'user-1',
+          winningBallNumber: 1,
+          isFinal: true,
+        }) as unknown,
+      }),
+    );
   });
 
   it('selects one persisted tie candidate and only then sends WhatsApp', async () => {
@@ -224,6 +402,9 @@ describe('DrawsService', () => {
           id: 'game-1',
           status: 'TIE_BREAK',
           finalWinnerId: null,
+          winningType: 'FULL_CARD',
+          prizeAmount: 1500000,
+          currencyCode: 'COP',
           tieBreakCandidates: candidates,
         }),
         update: jest.fn(
@@ -233,7 +414,7 @@ describe('DrawsService', () => {
           },
         ),
       },
-      winner: { findFirst: jest.fn().mockResolvedValue(winner) },
+      winner: { upsert: jest.fn().mockResolvedValue(winner) },
     };
     const prisma = {
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>

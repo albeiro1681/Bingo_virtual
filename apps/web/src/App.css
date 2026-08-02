@@ -28,6 +28,9 @@
 .games-view .whatsapp-section,
 .users-view .games-section,
 .users-view .whatsapp-section,
+.winners-view .games-section,
+.winners-view .users-section,
+.winners-view .whatsapp-section,
 .whatsapp-view .games-section,
 .whatsapp-view .users-section {
   display: none;
@@ -36,11 +39,50 @@
   grid-template-columns: minmax(0, 720px);
 }
 .admin > header,
-.draw-heading {
+.admin > header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+}
+.draw-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+.draw-title {
+  min-width: 0;
+}
+.draw-title h2 {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.25rem, 2.4vw, 1.5rem);
+}
+.draw-prize {
+  display: grid;
+  justify-items: center;
+  align-self: center;
+  color: var(--green);
+  text-align: center;
+}
+.draw-prize span {
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+.draw-prize strong {
+  font-size: clamp(1.65rem, 3vw, 2rem);
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.draw-prize.is-missing strong {
+  color: #68766f;
+  font-size: 1rem;
+  white-space: normal;
+}
+.draw-heading-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 .admin h1 {
   margin: 0.25rem 0 2rem;
@@ -92,7 +134,6 @@ select {
 .primary,
 .secondary,
 td button,
-.token-notice button,
 .table-action {
   font: inherit;
   font-weight: 700;
@@ -100,13 +141,6 @@ td button,
   border-radius: 0.5rem;
   cursor: pointer;
 }
-.inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.inline-actions button:not(.danger),
-.player-management button,
 .panel > button:not(.primary):not(.secondary) {
   border: 1px solid var(--line);
   border-radius: 0.5rem;
@@ -116,18 +150,9 @@ td button,
   padding: 0.55rem 0.75rem;
   cursor: pointer;
 }
-.inline-actions button:disabled,
-.player-management button:disabled,
 .panel > button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-.player-management li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.45rem;
 }
 .primary {
   border: 0;
@@ -139,7 +164,6 @@ td button,
 }
 .secondary,
 td button,
-.token-notice button,
 .table-action {
   border: 1px solid var(--line);
   background: #fff;
@@ -195,31 +219,13 @@ td button,
 .pattern-grid button:disabled {
   opacity: 1;
 }
-.message,
-.token-notice {
+.message {
   margin: 0 0 1rem;
   padding: 0.8rem 1rem;
   border-radius: 0.6rem;
 }
 .message {
   background: #fff3cd;
-}
-.token-notice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  background: #e8f4ef;
-}
-.token-notice a,
-.card-list small {
-  overflow-wrap: anywhere;
-}
-.compact-list {
-  margin: 0;
-  padding-left: 1.2rem;
-  max-height: 150px;
-  overflow: auto;
 }
 .wide-panel {
   margin-top: 1rem;
@@ -269,23 +275,108 @@ td button {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.card-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem;
-  margin-top: 1rem;
+.game-prize-cell {
+  color: var(--green-dark);
+  font-weight: 800;
+  white-space: nowrap;
 }
-.card-list article {
+.prize-input-field {
   display: grid;
-  gap: 0.25rem;
-  padding: 0.8rem;
-  background: var(--soft);
-  border-radius: 0.6rem;
+  gap: 0.35rem;
 }
-.card-list small {
+.prize-input-control {
+  display: flex;
+  align-items: center;
+  border: 1px solid #aabbb4;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+.prize-input-control:focus-within {
+  outline: 3px solid #176b5530;
+  border-color: var(--green);
+}
+.prize-input-control.is-invalid {
+  border-color: #a73b32;
+}
+.prize-input-control strong {
+  padding-left: 0.75rem;
+  color: var(--green-dark);
+  font-size: 1.1rem;
+}
+.prize-input-control input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.field-error {
+  color: #8d332b;
+  font-weight: 650;
+}
+.game-edit-backdrop {
+  position: fixed;
+  z-index: 110;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: #10251d80;
+}
+.game-edit-dialog {
+  width: min(480px, 100%);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 24px 60px #10251d45;
+}
+.game-edit-dialog > header,
+.game-edit-dialog > footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+}
+.game-edit-dialog > header {
+  border-bottom: 1px solid var(--line);
+}
+.game-edit-dialog > header span {
+  color: var(--green);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.game-edit-dialog h2 {
+  margin: 0.2rem 0 0;
+}
+.game-edit-dialog header button {
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #fff;
+  font-size: 1.2rem;
+}
+.game-edit-fields {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+}
+.game-edit-fields label {
+  display: grid;
+  gap: 0.35rem;
+}
+.game-edit-fields p {
+  margin: 0;
   color: #61726b;
+  font-size: 0.86rem;
+}
+.game-edit-dialog > footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
 }
 .draw-panel {
+  position: relative;
   border-color: #a9cfc1;
 }
 .draw-selector {
@@ -303,6 +394,30 @@ td button {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+.final-winner-summary {
+  display: grid;
+  justify-items: end;
+  gap: 0.08rem;
+  color: var(--green-dark);
+  text-align: right;
+}
+.final-winner-summary span {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.final-winner-summary strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 1.05rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.final-winner-summary small {
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 .draw-button {
   border: 0;
@@ -341,8 +456,76 @@ td button {
   gap: 1.25rem;
   margin-top: 1.25rem;
 }
+.draw-status-column {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.draw-presence {
+  display: grid;
+  width: 100%;
+  gap: 0.4rem;
+}
+.draw-presence > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--soft);
+}
+.draw-presence span {
+  color: #52655d;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.15;
+}
+.draw-presence strong {
+  color: var(--green-dark);
+  font-size: 1.15rem;
+}
+.draw-presence i {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #1a8a63;
+}
+.draw-presence i.is-offline {
+  background: #c54535;
+}
 .draw-layout h3 {
   margin-top: 0;
+}
+.draw-status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid #b9cec6;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--green-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.draw-status-badge.status-active {
+  border-color: #82bca5;
+  background: #eaf7f1;
+}
+.draw-status-badge.status-finished {
+  border-color: #c8cbc9;
+  background: #f2f3f2;
+  color: #505a56;
+}
+.draw-status-badge.status-tie_break {
+  border-color: #e2bb6e;
+  background: #fff7e6;
+  color: #7a5411;
 }
 .draw-history {
   grid-column: 2;
@@ -391,15 +574,17 @@ td button {
   font-weight: 800;
 }
 .draw-winner-banner {
-  position: relative;
+  position: absolute;
   isolation: isolate;
-  grid-column: 1/-1;
-  grid-row: 2;
+  z-index: 5;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
   display: grid;
   justify-items: center;
   gap: 0.2rem;
   overflow: hidden;
-  padding: 1rem 4rem;
+  padding: 0.65rem 2rem;
   border: 2px solid #f0ad19;
   border-radius: 1rem;
   background: linear-gradient(135deg, #fff2a8, #ffca3a 52%, #ff8c42);
@@ -416,6 +601,10 @@ td button {
   font-size: clamp(1.45rem, 4vw, 2.35rem);
   line-height: 1.1;
   overflow-wrap: anywhere;
+}
+.draw-winner-prize {
+  font-size: clamp(1rem, 1.6vw, 1.35rem);
+  font-weight: 900;
 }
 .draw-tie-banner {
   grid-column: 1/-1;
@@ -564,7 +753,6 @@ td button {
   color: #fff;
   aspect-ratio: 1;
   max-width: 220px;
-  grid-row: 1;
 }
 .last-ball strong {
   font-size: 3.8rem;
@@ -611,45 +799,165 @@ td button {
   border: 1px solid var(--line);
   font-weight: 700;
 }
-.active-players-list {
-  max-height: 15.5rem;
-  overflow-y: auto;
-  padding-right: 0.35rem;
-  scrollbar-gutter: stable;
-}
-.active-players-list ul {
-  margin: 0;
-  padding-left: 1.3rem;
-}
-.active-players-list li {
-  min-height: 1.55rem;
-}
-.card-assignment {
-  grid-column: span 2;
-}
-.number-picker {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(2.2rem, 1fr));
-  gap: 0.3rem;
-  max-height: 230px;
-  overflow: auto;
-}
-.number-picker button {
-  aspect-ratio: 1;
-  border: 1px solid var(--line);
-  border-radius: 0.35rem;
-  background: var(--soft);
-  font-weight: 700;
-  cursor: pointer;
-}
-.number-picker button.selected {
-  background: var(--green);
-  color: #fff;
-}
-.number-picker button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  text-decoration: line-through;
+@media (min-width: 981px) and (min-height: 650px) {
+  .draw-view {
+    display: flex;
+    flex-direction: column;
+    height: 100svh;
+    overflow: hidden;
+    padding: 0.55rem 1rem;
+  }
+  .draw-view > header {
+    flex: none;
+    align-items: center;
+  }
+  .draw-view > header .organization {
+    display: none;
+  }
+  .draw-view > header h1 {
+    margin: 0;
+    font-size: 1.55rem;
+    line-height: 1.05;
+  }
+  .draw-view .section-nav {
+    gap: 0.2rem;
+    margin: 0.2rem 0 0;
+  }
+  .draw-view .section-nav a {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.78rem;
+  }
+  .draw-view > header > .secondary {
+    margin: 0;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.76rem;
+  }
+  .draw-view > .message {
+    flex: none;
+    margin: 0.25rem 0 0;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.75rem;
+  }
+  .draw-view .draw-selector {
+    flex: none;
+    gap: 0.65rem;
+    margin-top: 0.4rem;
+    padding: 0.45rem 0.7rem;
+    border-radius: 0.7rem;
+  }
+  .draw-view .draw-selector h2 {
+    font-size: 0.95rem;
+    white-space: nowrap;
+  }
+  .draw-view .draw-selector select {
+    padding: 0.42rem 0.6rem;
+    font-size: 0.85rem;
+  }
+  .draw-view .draw-panel {
+    display: grid;
+    flex: 1;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    margin-top: 0.4rem;
+    padding: 0.65rem 0.75rem 0.75rem;
+    overflow: hidden;
+    border-radius: 0.75rem;
+  }
+  .draw-view .draw-heading {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, auto) minmax(0, 1fr);
+    gap: 0.65rem;
+  }
+  .draw-view .draw-title h2 {
+    font-size: 1.05rem;
+  }
+  .draw-view .draw-title p {
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+  .draw-view .draw-prize span {
+    font-size: 0.63rem;
+  }
+  .draw-view .draw-prize strong {
+    font-size: 1.45rem;
+  }
+  .draw-view .draw-actions {
+    gap: 0.45rem;
+  }
+  .draw-view .draw-button,
+  .draw-view .danger {
+    padding: 0.55rem 0.75rem;
+    font-size: 0.78rem;
+  }
+  .draw-view .draw-layout {
+    grid-template-columns: 160px minmax(400px, 1fr) 180px;
+    min-height: 0;
+    gap: 0.7rem;
+    margin-top: 0.55rem;
+  }
+  .draw-view .draw-layout h3 {
+    margin: 0 0 0.35rem;
+    font-size: 0.9rem;
+    line-height: 1.15;
+  }
+  .draw-view .last-ball {
+    width: 142px;
+    min-height: 142px;
+    max-width: 142px;
+  }
+  .draw-view .last-ball strong {
+    font-size: 2.65rem;
+  }
+  .draw-view .last-ball span,
+  .draw-view .last-ball small {
+    font-size: 0.72rem;
+  }
+  .draw-view .bingo-history-grid {
+    height: calc(100% - 1.25rem);
+    gap: 0.3rem;
+  }
+  .draw-view .draw-history {
+    height: auto;
+  }
+  .draw-view .bingo-history-column {
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+  }
+  .draw-view .bingo-history-column > strong {
+    margin-bottom: 0.2rem;
+    font-size: 1rem;
+  }
+  .draw-view .bingo-history-column > div {
+    gap: 0.12rem;
+    min-height: 0;
+  }
+  .draw-view .bingo-history-column span {
+    width: clamp(1.05rem, 2.45vh, 1.35rem);
+    font-size: 0.61rem;
+  }
+  .draw-view .draw-figure .pattern-grid {
+    width: min(100%, 165px);
+    gap: 0.2rem;
+  }
+  .draw-view .draw-figure .pattern-grid button {
+    border-width: 1px;
+  }
+  .draw-view .draw-figure p {
+    font-size: 0.82rem;
+  }
+  .draw-view .draw-tie-banner {
+    padding: 0.45rem 0.8rem;
+  }
+  .draw-view .tie-break-panel {
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+  .draw-view .tie-break-machine {
+    width: 125px;
+    min-height: 125px;
+  }
+  .draw-view .draw-winner-banner strong {
+    font-size: 1.35rem;
+  }
 }
 @media (max-width: 600px) {
   .admin {
@@ -657,7 +965,14 @@ td button {
   }
   .admin > header,
   .draw-heading {
-    display: block;
+    grid-template-columns: 1fr;
+  }
+  .draw-prize {
+    grid-row: 2;
+  }
+  .draw-heading-actions {
+    grid-row: 3;
+    justify-content: stretch;
   }
   .admin h1 {
     font-size: 2rem;
@@ -665,9 +980,6 @@ td button {
   }
   .panels {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .card-assignment {
-    grid-column: 1/-1;
   }
   .secondary {
     margin-bottom: 1rem;
@@ -705,5 +1017,194 @@ td button {
   }
   .bingo-history-column > div {
     min-height: 0;
+  }
+}
+
+/* Vista de presentación del sorteo: ocupa exclusivamente el viewport. */
+#root:has(.draw-view) {
+  width: 100vw;
+  max-width: none;
+  min-height: 100vh;
+  border: 0;
+}
+.draw-view {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  min-height: 0;
+  overflow: hidden;
+}
+.draw-view > header,
+.draw-view > .draw-selector,
+.draw-view > .message {
+  display: none !important;
+}
+
+@media (min-width: 981px) and (min-height: 650px) {
+  .draw-view {
+    --draw-viewport-inset: clamp(0.45rem, 1vh, 0.75rem);
+    display: block;
+    padding: var(--draw-viewport-inset);
+  }
+  .draw-view .draw-panel {
+    width: 100%;
+    height: calc(
+      100vh - var(--draw-viewport-inset) - var(--draw-viewport-inset)
+    );
+    min-height: 0;
+    align-self: stretch;
+    box-sizing: border-box;
+    margin: 0;
+    padding: clamp(0.65rem, 1.25vh, 1rem) clamp(0.75rem, 1.3vw, 1.35rem);
+    border-radius: 0.8rem;
+  }
+  .draw-view .draw-heading {
+    grid-template-columns: minmax(260px, 1fr) minmax(260px, auto) minmax(
+        300px,
+        1fr
+      );
+    gap: clamp(0.8rem, 1.5vw, 1.5rem);
+  }
+  .draw-view .draw-title h2 {
+    font-size: clamp(1.3rem, 1.65vw, 1.85rem);
+  }
+  .draw-view .draw-title p {
+    margin-top: 0.2rem;
+    font-size: clamp(0.85rem, 1vw, 1.05rem);
+  }
+  .draw-view .draw-prize span {
+    font-size: clamp(0.72rem, 0.8vw, 0.9rem);
+  }
+  .draw-view .draw-prize strong {
+    font-size: clamp(2rem, 2.4vw, 2.8rem);
+  }
+  .draw-view .draw-actions {
+    gap: clamp(0.55rem, 1vw, 1rem);
+  }
+  .draw-view .final-winner-summary strong {
+    font-size: clamp(1.05rem, 1.2vw, 1.3rem);
+  }
+  .draw-view .draw-button {
+    min-height: 3.5rem;
+    padding: 0.85rem 1.45rem;
+    font-size: clamp(1rem, 1.15vw, 1.25rem);
+  }
+  .draw-view .danger {
+    min-height: 2.85rem;
+    padding: 0.65rem 0.9rem;
+    font-size: clamp(0.78rem, 0.9vw, 0.95rem);
+  }
+  .draw-view .draw-layout {
+    grid-template-columns:
+      minmax(190px, 0.75fr)
+      minmax(650px, 3.4fr)
+      minmax(230px, 0.95fr);
+    height: auto;
+    min-height: 0;
+    align-self: stretch;
+    gap: clamp(0.65rem, 1.15vw, 1.2rem);
+    margin-top: clamp(0.5rem, 1vh, 0.8rem);
+  }
+  .draw-view .draw-status-column {
+    gap: clamp(0.7rem, 1.2vh, 1rem);
+  }
+  .draw-view .last-ball {
+    width: clamp(180px, 15vw, 245px);
+    min-height: 0;
+    max-width: min(100%, 245px);
+  }
+  .draw-view .last-ball strong {
+    font-size: clamp(3.5rem, 4.5vw, 5rem);
+  }
+  .draw-view .last-ball span {
+    font-size: clamp(0.95rem, 1.1vw, 1.2rem);
+  }
+  .draw-view .last-ball small {
+    font-size: clamp(0.8rem, 0.95vw, 1rem);
+  }
+  .draw-view .draw-presence {
+    max-width: 245px;
+    gap: clamp(0.45rem, 0.8vh, 0.7rem);
+  }
+  .draw-view .draw-presence > div {
+    min-height: 2.6rem;
+    padding: 0.55rem 0.7rem;
+  }
+  .draw-view .draw-presence span {
+    font-size: clamp(0.78rem, 0.9vw, 0.98rem);
+  }
+  .draw-view .draw-presence strong {
+    font-size: clamp(1.3rem, 1.6vw, 1.8rem);
+  }
+  .draw-view .draw-history {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-items: center;
+    height: 100%;
+    min-height: 0;
+  }
+  .draw-view .draw-layout h3 {
+    margin-bottom: clamp(0.35rem, 0.7vh, 0.6rem);
+    font-size: clamp(1.05rem, 1.25vw, 1.4rem);
+  }
+  .draw-view .bingo-history-grid {
+    grid-template-columns: repeat(5, clamp(4.25rem, 6.2vw, 6.5rem));
+    justify-content: center;
+    align-self: stretch;
+    width: auto;
+    height: 100%;
+    gap: clamp(0.35rem, 0.65vw, 0.7rem);
+  }
+  .draw-view .bingo-history-column {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-items: center;
+    height: 100%;
+    box-sizing: border-box;
+    padding: clamp(0.25rem, 0.5vh, 0.45rem);
+  }
+  .draw-view .bingo-history-column > strong {
+    margin-bottom: clamp(0.2rem, 0.45vh, 0.4rem);
+    font-size: clamp(1.2rem, 1.45vw, 1.65rem);
+  }
+  .draw-view .bingo-history-column > div {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    --history-ball-gap: clamp(0.08rem, 0.22vh, 0.16rem);
+    gap: var(--history-ball-gap);
+  }
+  .draw-view .bingo-history-column span {
+    flex: 0 0 auto;
+    width: clamp(1.35rem, calc((100vh - 15rem) / 15), 2.65rem);
+    font-size: clamp(0.72rem, 1.6vh, 1.25rem);
+  }
+  .draw-view .draw-figure {
+    display: grid;
+    align-content: start;
+    justify-items: center;
+  }
+  .draw-view .draw-figure .pattern-grid {
+    width: min(100%, clamp(210px, 16vw, 290px));
+    gap: clamp(0.3rem, 0.5vw, 0.55rem);
+  }
+  .draw-view .draw-figure .pattern-grid button {
+    border-width: 2px;
+  }
+  .draw-view .draw-winner-banner {
+    right: clamp(0.8rem, 1.5vw, 1.5rem);
+    bottom: clamp(0.75rem, 1.3vh, 1.25rem);
+    left: clamp(0.8rem, 1.5vw, 1.5rem);
+    padding: clamp(0.7rem, 1.1vh, 1rem) 2rem;
+  }
+  .draw-view .draw-winner-banner span {
+    font-size: clamp(0.9rem, 1vw, 1.1rem);
+  }
+  .draw-view .draw-winner-banner strong {
+    font-size: clamp(1.5rem, 2vw, 2.25rem);
   }
 }

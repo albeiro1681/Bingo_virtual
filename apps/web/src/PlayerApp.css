@@ -169,6 +169,11 @@
   color: #fff;
   border-color: #176b55;
 }
+.bingo-row button.marked.target {
+  border-color: #9dd8c6;
+  background: #27845f;
+  box-shadow: inset 0 0 0 2px #e3f4ee;
+}
 .player-history {
   margin-top: 1rem;
 }
@@ -191,6 +196,12 @@
   display: block;
   margin-top: 1rem;
   color: #687872;
+}
+@media (min-width: 801px) {
+  .player-cards {
+    grid-template-columns: repeat(2, minmax(0, 45%));
+    justify-content: center;
+  }
 }
 @media (max-width: 800px) {
   .player-view {

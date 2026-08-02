@@ -140,4 +140,71 @@ describe('CardsService', () => {
       }),
     );
   });
+
+  it('saves an assignment without creating a WhatsApp delivery when disabled', async () => {
+    const user = {
+      id: 'player-1',
+      name: 'Player',
+      role: 'PLAYER',
+      active: true,
+      phone: '+573001234567',
+    };
+    const tx = {
+      user: { findFirst: jest.fn().mockResolvedValue(user) },
+      card: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({ id: 'card-8', number: 8 }),
+      },
+      cardTemplate: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'template-8', number: 8, cells: [], card: null },
+          ]),
+      },
+      game: { count: jest.fn().mockResolvedValue(0) },
+      cardAssignmentAudit: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const notifyAssignment = jest.fn();
+    const whatsapp = { notifyAssignment } as unknown as WhatsAppService;
+
+    await expect(
+      new CardsService(prisma, whatsapp).updatePlayerCards(
+        'player-1',
+        [8],
+        undefined,
+        false,
+      ),
+    ).resolves.toMatchObject({
+      count: 1,
+      cardNumbers: [8],
+      whatsappStatus: 'SKIPPED',
+    });
+    expect(notifyAssignment).not.toHaveBeenCalled();
+  });
+
+  it('rejects resending a card that does not belong to the player', async () => {
+    const prisma = {
+      user: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'player-1',
+          name: 'Player',
+          phone: '+573001234567',
+          cards: [],
+        }),
+      },
+    } as unknown as PrismaService;
+    const whatsapp = {
+      notifyAssignment: jest.fn(),
+    } as unknown as WhatsAppService;
+
+    await expect(
+      new CardsService(prisma, whatsapp).resendPlayerCards('player-1', [8]),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
 });

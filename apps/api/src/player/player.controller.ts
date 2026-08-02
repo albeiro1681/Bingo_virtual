@@ -28,7 +28,9 @@ export class PlayerController {
         include: {
           winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
           drawnBalls: { orderBy: { drawOrder: 'asc' } },
-          winners: { where: { card: { userId: request.player.id } } },
+          winners: {
+            where: { isFinal: true, card: { userId: request.player.id } },
+          },
           finalWinner: {
             select: { id: true, number: true, userId: true },
           },

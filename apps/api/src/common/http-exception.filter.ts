@@ -15,6 +15,8 @@ const translations: Record<string, string> = {
   'Game not found': 'No se encontró el sorteo',
   'Only draft games can be started':
     'Solo se pueden iniciar sorteos en estado borrador',
+  'Only draft games can be edited':
+    'Solo se pueden editar sorteos en estado borrador',
   'Another game is already active': 'Ya existe otro sorteo activo',
   'At least one card must be assigned before starting a game':
     'Debe haber al menos un cartón asignado antes de iniciar el sorteo',
@@ -26,12 +28,15 @@ const translations: Record<string, string> = {
     'Los sorteos por figura deben seleccionar una figura',
   'Active figure not found': 'No se encontró una figura activa',
   'Player not found': 'No se encontró el jugador',
+  'Winner not found': 'No se encontró el ganador',
   'Player phone not found': 'El jugador no tiene teléfono registrado',
   'Active player with phone not found':
     'No se encontró un jugador activo con teléfono',
   'Player with phone not found': 'No se encontró un jugador con teléfono',
   'One or more card numbers do not exist':
     'Uno o más números de cartón no existen',
+  'One or more cards do not belong to this player':
+    'Uno o más cartones no pertenecen a este jugador',
   'One or more card numbers do not exist in the master catalog':
     'Uno o más números de cartón no existen en el catálogo maestro',
   'Assigned cards are permanently locked because a draw has already started':
@@ -65,6 +70,7 @@ function translate(message: unknown): string {
     patternId: 'figura',
     phone: 'teléfono',
     cardNumbers: 'números de cartón',
+    prizeAmount: 'monto del premio',
     userId: 'jugador',
   };
   const field = (value: string) => fieldLabels[value] ?? value;
@@ -82,6 +88,11 @@ function translate(message: unknown): string {
     return `El campo ${field(enumValues[1])} debe tener uno de estos valores: ${enumValues[2]}`;
   const assigned = message.match(/^Cards already assigned: (.+)$/);
   if (assigned) return `Cartones ya asignados: ${assigned[1]}`;
+  const minimumNumber = message.match(/^(.+) must not be less than (.+)$/);
+  if (minimumNumber)
+    return `El campo ${field(minimumNumber[1])} debe ser mayor o igual a ${minimumNumber[2]}`;
+  const integer = message.match(/^(.+) must be an integer number$/);
+  if (integer) return `El campo ${field(integer[1])} debe ser un número entero`;
   return message;
 }
 
@@ -112,7 +123,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ];
 
     response.setHeader('X-Incident-Id', incidentId);
-    if (status === HttpStatus.TOO_MANY_REQUESTS)
+    if (status === Number(HttpStatus.TOO_MANY_REQUESTS))
       response.setHeader('Retry-After', '900');
     response.status(status).json({
       statusCode: status,

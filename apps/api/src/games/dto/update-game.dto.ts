@@ -7,25 +7,23 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { GameWinMode } from './create-game.dto';
 
-export enum GameWinMode {
-  FULL_CARD = 'FULL_CARD',
-  FIGURE = 'FIGURE',
-}
-
-export class CreateGameDto {
+export class UpdateGameDto {
+  @IsOptional()
   @IsString()
   @Length(2, 120)
-  name!: string;
+  name?: string;
 
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(Number.MAX_SAFE_INTEGER)
-  prizeAmount!: number;
+  prizeAmount?: number;
 
   @IsOptional()
   @IsEnum(GameWinMode)
-  winMode: GameWinMode = GameWinMode.FULL_CARD;
+  winMode?: GameWinMode;
 
   @IsOptional()
   @IsString()

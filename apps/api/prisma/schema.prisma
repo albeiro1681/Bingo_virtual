@@ -77,6 +77,7 @@ model User {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   cards              Card[]
+  winners            Winner[]
   whatsappDeliveries WhatsAppDelivery[]
   adminSessions      AdminSession[]
 }
@@ -134,6 +135,8 @@ model Game {
   endedManually       Boolean             @default(false)
   finalWinnerId       String?
   tieBreakCompletedAt DateTime?
+  prizeAmount         Decimal?            @db.Decimal(18, 0)
+  currencyCode        String              @default("COP")
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   drawnBalls          DrawnBall[]
@@ -226,14 +229,23 @@ model Winner {
   id                 String             @id @default(cuid())
   gameId             String
   cardId             String
+  playerId           String
   type               WinnerType
+  prizeAmount        Decimal?           @db.Decimal(18, 0)
+  currencyCode       String             @default("COP")
+  winningBallNumber  Int?
+  isFinal            Boolean            @default(true)
   detectedAt         DateTime           @default(now())
   game               Game               @relation(fields: [gameId], references: [id], onDelete: Restrict)
   card               Card               @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  player             User               @relation(fields: [playerId], references: [id], onDelete: Restrict)
   whatsappDeliveries WhatsAppDelivery[]
 
   @@unique([gameId, cardId, type])
   @@index([gameId])
+  @@index([playerId])
+  @@index([cardId])
+  @@index([detectedAt])
 }
 
 model TieBreakCandidate {

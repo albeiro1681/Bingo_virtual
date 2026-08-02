@@ -26,6 +26,17 @@ describe('generateCard', () => {
       expect(numbers.every((number) => number <= (column + 1) * 15)).toBe(true);
     }
   });
+
+  it('does not automatically sort the selected numbers within columns', () => {
+    const cells = generateCard(seededSequence());
+    const columns = Array.from({ length: 5 }, (_, column) =>
+      cells
+        .filter((cell) => cell.column === column && cell.number !== null)
+        .map((cell) => cell.number as number),
+    );
+
+    expect(columns.some((numbers) => !isOrdered(numbers))).toBe(true);
+  });
 });
 
 describe('generateCardCatalog', () => {
@@ -97,4 +108,33 @@ describe('generateCardCatalog', () => {
       generateCardCatalog(CARD_CATALOG_SIZE, CARD_CATALOG_SEED + 1),
     ).not.toEqual(generateCardCatalog(CARD_CATALOG_SIZE, CARD_CATALOG_SEED));
   });
+
+  it('places catalog numbers in non-ordered positions', () => {
+    const catalog = generateCardCatalog();
+    const columns = catalog.flatMap((card) =>
+      Array.from({ length: 5 }, (_, column) =>
+        card
+          .filter((cell) => cell.column === column && cell.number !== null)
+          .map((cell) => cell.number as number),
+      ),
+    );
+
+    expect(columns.filter(isOrdered).length).toBeLessThan(columns.length / 10);
+  });
 });
+
+function isOrdered(numbers: number[]): boolean {
+  const ascending = numbers.every(
+    (number, index) => index === 0 || numbers[index - 1] < number,
+  );
+  const descending = numbers.every(
+    (number, index) => index === 0 || numbers[index - 1] > number,
+  );
+  return ascending || descending;
+}
+
+function seededSequence(): () => number {
+  const values = [0.13, 0.81, 0.27, 0.64, 0.42, 0.95, 0.08];
+  let index = 0;
+  return () => values[index++ % values.length];
+}

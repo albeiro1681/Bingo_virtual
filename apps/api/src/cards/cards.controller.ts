@@ -11,6 +11,7 @@ import { AdminTokenGuard } from '../auth/admin-token.guard';
 import { CardsService } from './cards.service';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
 import { UpdatePlayerCardsDto } from './dto/update-player-cards.dto';
+import { ResendPlayerCardsDto } from './dto/resend-player-cards.dto';
 
 @Controller('api/admin/cards')
 @UseGuards(AdminTokenGuard)
@@ -42,10 +43,23 @@ export class CardsController {
     @Param('userId') userId: string,
     @Body() dto: UpdatePlayerCardsDto,
   ) {
-    return this.cards.updatePlayerCards(userId, dto.cardNumbers, {
-      name: dto.name,
-      phone: dto.phone,
-      active: dto.active,
-    });
+    return this.cards.updatePlayerCards(
+      userId,
+      dto.cardNumbers,
+      {
+        name: dto.name,
+        phone: dto.phone,
+        active: dto.active,
+      },
+      dto.sendWhatsApp ?? true,
+    );
+  }
+
+  @Post('player/:userId/resend')
+  resendPlayerCards(
+    @Param('userId') userId: string,
+    @Body() dto: ResendPlayerCardsDto,
+  ) {
+    return this.cards.resendPlayerCards(userId, dto.cardNumbers);
   }
 }

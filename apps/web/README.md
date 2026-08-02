@@ -1,32 +1,31 @@
-# React + TypeScript + Vite
+# Interfaz web de Bingo Virtual
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Frontend React + Vite + TypeScript para administración, presentación del sorteo y jugadores.
 
-Currently, two official plugins are available:
+## Vistas
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `/admin/games`: sorteos y premios.
+- `/admin/users`: jugadores y asignación permanente de cartones.
+- `/admin/winners`: consulta responsive de ganadores y premios.
+- `/admin/whatsapp`: configuración y seguimiento de envíos.
+- `/draw`: panel de sorteo a pantalla completa.
+- `/player`: cartones del jugador mediante token.
 
-## React Compiler
+## Criterios de interfaz
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Todos los textos visibles se presentan en español.
+- El panel de sorteo cabe sin scroll en 1366×768 y 1920×1080 y muestra hasta 15 balotas por letra.
+- El ganador se anuncia una sola vez mediante overlay y permanece resumido al finalizar.
+- La vista del jugador mantiene dos cartones por fila en PC y una columna en móvil.
+- Las celdas distinguen los estados normal, figura, marcada y marcada dentro de la figura.
+- Los módulos administrativos evitan scroll horizontal y adaptan tablas a tarjetas en móvil.
 
-## Expanding the Oxlint configuration
+## Comandos
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm run dev:web
+npm run lint --workspace web
+npm run build --workspace web
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+La interfaz consume exclusivamente los contratos existentes del backend; no determina balotas ni ganadores.

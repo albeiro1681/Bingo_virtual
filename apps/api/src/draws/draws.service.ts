@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomInt } from 'node:crypto';
 import {
   findWinningPatterns,
   matchesCustomPattern,
@@ -13,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { DrawsGateway } from './draws.gateway';
 import { availableBallNumbers } from './ball-pool';
+import { selectSecureRandom } from './secure-random';
 
 const MAX_TRANSACTION_RETRIES = 5;
 const RETRYABLE_TRANSACTION_CODES = new Set(['P2002', 'P2034']);
@@ -57,8 +57,7 @@ export class DrawsService {
             throw new ConflictException('All balls have already been drawn');
           }
 
-          const number =
-            available[Math.floor(Math.random() * available.length)];
+          const number = selectSecureRandom(available);
           const ball = await tx.drawnBall.create({
             data: {
               gameId,
@@ -73,21 +72,23 @@ export class DrawsService {
               ? matchesCustomPattern(card.cells, drawn, game.winningCells)
               : findWinningPatterns(card.cells, drawn).includes(winningType),
           );
-          if (winningCards.length > 0) {
-            await tx.winner.createMany({
-              data: winningCards.map((card) => ({
-                gameId,
-                cardId: card.id,
-                type: winningType,
-              })),
-              skipDuplicates: true,
-            });
+          const winningCardsByPlayer = new Map<
+            string,
+            (typeof winningCards)[number]
+          >();
+          for (const card of winningCards) {
+            const current = winningCardsByPlayer.get(card.userId);
+            if (!current || card.number < current.number) {
+              winningCardsByPlayer.set(card.userId, card);
+            }
           }
-
-          const tied = winningCards.length > 1;
+          const playerWinningCards = [...winningCardsByPlayer.values()];
+          const definitiveCard =
+            playerWinningCards.length === 1 ? playerWinningCards[0] : null;
+          const tied = playerWinningCards.length > 1;
           if (tied) {
             await tx.tieBreakCandidate.createMany({
-              data: winningCards.map((card) => ({
+              data: playerWinningCards.map((card) => ({
                 gameId,
                 cardId: card.id,
               })),
@@ -102,8 +103,7 @@ export class DrawsService {
                 data: {
                   status: tied ? 'TIE_BREAK' : 'FINISHED',
                   finishedAt: tied ? null : new Date(),
-                  finalWinnerId:
-                    winningCards.length === 1 ? winningCards[0].id : undefined,
+                  finalWinnerId: definitiveCard?.id,
                   endedManually: false,
                 },
                 select: {
@@ -115,6 +115,8 @@ export class DrawsService {
                   finishedAt: true,
                   endedManually: true,
                   finalWinnerId: true,
+                  prizeAmount: true,
+                  currencyCode: true,
                 },
               })
             : {
@@ -126,24 +128,46 @@ export class DrawsService {
                 finishedAt: game.finishedAt,
                 endedManually: game.endedManually,
                 finalWinnerId: game.finalWinnerId,
+                prizeAmount: game.prizeAmount,
+                currencyCode: game.currencyCode,
               };
 
-          const winners =
-            winningCards.length > 0
-              ? await tx.winner.findMany({
-                  where: {
+          const winner = definitiveCard
+            ? await tx.winner.upsert({
+                where: {
+                  gameId_cardId_type: {
                     gameId,
-                    cardId: { in: winningCards.map((card) => card.id) },
+                    cardId: definitiveCard.id,
+                    type: winningType,
                   },
-                  include: {
-                    card: {
-                      include: {
-                        user: { select: { id: true, name: true, phone: true } },
-                      },
+                },
+                create: {
+                  gameId,
+                  cardId: definitiveCard.id,
+                  playerId: definitiveCard.userId,
+                  type: winningType,
+                  prizeAmount: game.prizeAmount,
+                  currencyCode: game.currencyCode,
+                  winningBallNumber: ball.number,
+                  isFinal: true,
+                },
+                update: {
+                  playerId: definitiveCard.userId,
+                  prizeAmount: game.prizeAmount,
+                  currencyCode: game.currencyCode,
+                  winningBallNumber: ball.number,
+                  isFinal: true,
+                },
+                include: {
+                  card: {
+                    include: {
+                      user: { select: { id: true, name: true, phone: true } },
                     },
                   },
-                })
-              : [];
+                },
+              })
+            : null;
+          const winners = winner ? [winner] : [];
 
           return { ball, winners, game: updatedGame, tied };
         },
@@ -191,10 +215,30 @@ export class DrawsService {
             );
           }
 
-          const selected =
-            game.tieBreakCandidates[randomInt(game.tieBreakCandidates.length)];
-          const winner = await tx.winner.findFirst({
-            where: { gameId, cardId: selected.cardId },
+          const selected = selectSecureRandom(game.tieBreakCandidates);
+          const winner = await tx.winner.upsert({
+            where: {
+              gameId_cardId_type: {
+                gameId,
+                cardId: selected.cardId,
+                type: game.winningType,
+              },
+            },
+            create: {
+              gameId,
+              cardId: selected.cardId,
+              playerId: selected.card.user.id,
+              type: game.winningType,
+              prizeAmount: game.prizeAmount,
+              currencyCode: game.currencyCode,
+              isFinal: true,
+            },
+            update: {
+              playerId: selected.card.user.id,
+              prizeAmount: game.prizeAmount,
+              currencyCode: game.currencyCode,
+              isFinal: true,
+            },
             include: {
               card: {
                 include: {
@@ -203,9 +247,6 @@ export class DrawsService {
               },
             },
           });
-          if (!winner) {
-            throw new ConflictException('Tie-break candidate is not a winner');
-          }
 
           const updatedGame = await tx.game.update({
             where: { id: gameId },
@@ -225,6 +266,8 @@ export class DrawsService {
               endedManually: true,
               finalWinnerId: true,
               tieBreakCompletedAt: true,
+              prizeAmount: true,
+              currencyCode: true,
             },
           });
           return {

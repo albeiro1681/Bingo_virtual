@@ -151,6 +151,7 @@ export class CardsService {
     userId: string,
     cardNumbers: number[],
     profile?: { name?: string; phone?: string; active?: boolean },
+    sendWhatsApp = true,
   ) {
     const result = await this.prisma.$transaction(
       async (tx) => {
@@ -265,19 +266,48 @@ export class CardsService {
       { isolationLevel: 'Serializable' },
     );
 
-    await this.whatsapp
-      .notifyAssignment({
-        user: {
-          id: result.user.id,
-          name: result.user.name,
-          phone: result.user.phone!,
-        },
-        cardNumbers: result.cardNumbers,
-      })
-      .catch(() => undefined);
+    const delivery = sendWhatsApp
+      ? await this.whatsapp
+          .notifyAssignment({
+            user: {
+              id: result.user.id,
+              name: result.user.name,
+              phone: result.user.phone!,
+            },
+            cardNumbers: result.cardNumbers,
+          })
+          .catch(() => undefined)
+      : undefined;
     return {
       count: result.cardNumbers.length,
       cardNumbers: result.cardNumbers,
+      whatsappStatus: sendWhatsApp ? (delivery?.status ?? 'FAILED') : 'SKIPPED',
     };
+  }
+
+  async resendPlayerCards(userId: string, cardNumbers: number[]) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, role: 'PLAYER', active: true },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        cards: {
+          where: { number: { in: cardNumbers } },
+          select: { number: true },
+        },
+      },
+    });
+    if (!user?.phone)
+      throw new NotFoundException('Active player with phone not found');
+    if (user.cards.length !== cardNumbers.length)
+      throw new ConflictException(
+        'One or more cards do not belong to this player',
+      );
+    const delivery = await this.whatsapp.notifyAssignment({
+      user: { id: user.id, name: user.name, phone: user.phone },
+      cardNumbers: [...cardNumbers].sort((a, b) => a - b),
+    });
+    return { status: delivery.status, cardNumbers };
   }
 }

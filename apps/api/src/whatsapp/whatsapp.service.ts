@@ -161,9 +161,9 @@ export class WhatsAppService {
   async notifyAssignment(input: {
     user: { id: string; name: string; phone: string };
     cardNumbers: number[];
-  }): Promise<void> {
+  }) {
     const settings = await this.settings();
-    await this.send({
+    return this.send({
       kind: 'CARD_ASSIGNMENT',
       recipient: input.user.phone,
       templateName: settings.cardAssignmentTemplate,
@@ -277,7 +277,7 @@ export class WhatsAppService {
     return retried;
   }
 
-  private async send(message: TemplateMessage): Promise<void> {
+  private async send(message: TemplateMessage) {
     const delivery = await this.prisma.whatsAppDelivery.upsert({
       where: { idempotencyKey: message.idempotencyKey },
       create: {
@@ -295,12 +295,12 @@ export class WhatsAppService {
       },
       update: {},
     });
-    if (delivery.status === 'SENT') return;
+    if (delivery.status === 'SENT') return delivery;
 
     const settings = await this.settings();
     const token = settings.accessToken;
     const phoneNumberId = settings.phoneNumberId;
-    if (!token || !phoneNumberId) return;
+    if (!token || !phoneNumberId) return delivery;
 
     try {
       const version = settings.graphApiVersion;
@@ -343,7 +343,7 @@ export class WhatsAppService {
         throw new Error(
           body.error?.message ?? `WhatsApp HTTP ${response.status}`,
         );
-      await this.prisma.whatsAppDelivery.update({
+      return await this.prisma.whatsAppDelivery.update({
         where: { id: delivery.id },
         data: {
           status: 'SENT',
@@ -353,7 +353,7 @@ export class WhatsAppService {
         },
       });
     } catch (error: unknown) {
-      await this.prisma.whatsAppDelivery.update({
+      return await this.prisma.whatsAppDelivery.update({
         where: { id: delivery.id },
         data: {
           status: 'FAILED',

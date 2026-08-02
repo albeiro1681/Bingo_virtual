@@ -31,7 +31,7 @@ export function generateCard(random: () => number = Math.random): BingoCell[] {
       ];
     }
 
-    const selected = candidates.slice(0, BOARD_SIZE).sort((a, b) => a - b);
+    const selected = candidates.slice(0, BOARD_SIZE);
     for (let row = 0; row < BOARD_SIZE; row += 1) {
       const isFree = row === 2 && column === 2;
       cells.push({
@@ -93,7 +93,8 @@ function balancedColumn(
       selected.push(choice.index);
       remaining[choice.index] -= 1;
     }
-    cards.push(selected.map((index) => start + index).sort((a, b) => a - b));
+    shuffle(selected, random);
+    cards.push(selected.map((index) => start + index));
   }
 
   return remaining.every((count) => count === 0) ? cards : null;

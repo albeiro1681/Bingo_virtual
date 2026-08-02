@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { DrawsGateway } from '../draws/draws.gateway';
 import { CreateGameDto, GameWinMode } from './dto/create-game.dto';
+import { UpdateGameDto } from './dto/update-game.dto';
 
 @Injectable()
 export class GamesService {
@@ -25,7 +26,11 @@ export class GamesService {
           );
         }
         return tx.game.create({
-          data: { name: dto.name.trim(), winningType: 'FULL_CARD' },
+          data: {
+            name: dto.name.trim(),
+            winningType: 'FULL_CARD',
+            prizeAmount: dto.prizeAmount,
+          },
         });
       }
 
@@ -44,7 +49,73 @@ export class GamesService {
           winningType: 'CUSTOM',
           patternId: pattern.id,
           patternName: pattern.name,
+          prizeAmount: dto.prizeAmount,
           winningCells: {
+            create: pattern.cells.map(({ row, column }) => ({ row, column })),
+          },
+        },
+        include: { winningCells: true },
+      });
+    });
+  }
+
+  update(id: string, dto: UpdateGameDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const game = await tx.game.findUnique({ where: { id } });
+      if (!game) throw new NotFoundException('Game not found');
+      if (game.status !== 'DRAFT') {
+        throw new ConflictException('Only draft games can be edited');
+      }
+
+      const nextWinningType =
+        dto.winMode === undefined
+          ? game.winningType
+          : dto.winMode === GameWinMode.FIGURE
+            ? 'CUSTOM'
+            : 'FULL_CARD';
+      if (nextWinningType === 'FULL_CARD') {
+        if (dto.patternId) {
+          throw new BadRequestException(
+            'Full-card games cannot select a figure',
+          );
+        }
+        return tx.game.update({
+          where: { id },
+          data: {
+            ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+            ...(dto.prizeAmount !== undefined
+              ? { prizeAmount: dto.prizeAmount }
+              : {}),
+            winningType: 'FULL_CARD',
+            patternId: null,
+            patternName: null,
+            winningCells: { deleteMany: {} },
+          },
+          include: { winningCells: true },
+        });
+      }
+
+      const patternId = dto.patternId ?? game.patternId;
+      if (!patternId) {
+        throw new BadRequestException('Figure games must select a pattern');
+      }
+      const pattern = await tx.bingoPattern.findFirst({
+        where: { id: patternId, active: true },
+        include: { cells: true },
+      });
+      if (!pattern) throw new NotFoundException('Active figure not found');
+      return tx.game.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.prizeAmount !== undefined
+            ? { prizeAmount: dto.prizeAmount }
+            : {}),
+          winningType: 'CUSTOM',
+          patternId: pattern.id,
+          patternName: pattern.name,
+          winningCells: {
+            deleteMany: {},
             create: pattern.cells.map(({ row, column }) => ({ row, column })),
           },
         },
@@ -67,7 +138,9 @@ export class GamesService {
             },
             orderBy: { card: { number: 'asc' } },
           },
-          _count: { select: { drawnBalls: true, winners: true } },
+          _count: {
+            select: { drawnBalls: true, winners: { where: { isFinal: true } } },
+          },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -81,7 +154,7 @@ export class GamesService {
 
   winners(id: string) {
     return this.prisma.winner.findMany({
-      where: { gameId: id },
+      where: { gameId: id, isFinal: true },
       include: {
         card: { include: { user: { select: { id: true, name: true } } } },
       },
@@ -117,6 +190,7 @@ export class GamesService {
           orderBy: { card: { number: 'asc' } },
         },
         winners: {
+          where: { isFinal: true },
           include: {
             card: { include: { user: { select: { id: true, name: true } } } },
           },
