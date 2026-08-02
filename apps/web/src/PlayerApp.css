@@ -30,7 +30,7 @@
   font-weight: 800;
 }
 .player-view {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: auto;
   padding: 2rem;
 }
@@ -65,6 +65,21 @@
 .winner-banner strong {
   font-size: 2rem;
 }
+.tie-banner,
+.tie-result-banner {
+  display: grid;
+  gap: 0.35rem;
+  margin: 1.5rem 0;
+  padding: 1rem 1.5rem;
+  border: 2px solid #d87816;
+  border-radius: 1rem;
+  background: #fff3cd;
+  color: #713c00;
+}
+.tie-banner strong,
+.tie-result-banner strong {
+  font-size: 1.35rem;
+}
 .player-message,
 .empty-state {
   margin: 1rem 0;
@@ -74,11 +89,12 @@
 }
 .player-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.25rem;
   margin-top: 1.5rem;
 }
 .player-card {
+  min-width: 0;
   padding: 1.25rem;
   border: 2px solid #d7e2dd;
   border-radius: 1rem;
@@ -88,6 +104,10 @@
 .player-card.is-winner {
   border-color: #e1b925;
   box-shadow: 0 0 0 4px #ffe78555;
+}
+.player-card.is-tied {
+  border-color: #d87816;
+  box-shadow: 0 0 0 4px #f6b94a44;
 }
 .card-top {
   display: flex;
@@ -172,7 +192,7 @@
   margin-top: 1rem;
   color: #687872;
 }
-@media (max-width: 520px) {
+@media (max-width: 800px) {
   .player-view {
     padding: 1rem;
   }

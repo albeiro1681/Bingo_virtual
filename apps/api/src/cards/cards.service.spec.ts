@@ -78,7 +78,7 @@ describe('CardsService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('creates a permanent assignment without a game', async () => {
+  it('creates a permanent assignment even if WhatsApp fails', async () => {
     const user = {
       id: 'player-1',
       name: 'Player',
@@ -110,7 +110,9 @@ describe('CardsService', () => {
         callback(tx),
       ),
     } as unknown as PrismaService;
-    const notifyAssignment = jest.fn().mockResolvedValue(undefined);
+    const notifyAssignment = jest
+      .fn()
+      .mockRejectedValue(new Error('WhatsApp unavailable'));
     const whatsapp = { notifyAssignment } as unknown as WhatsAppService;
 
     await expect(

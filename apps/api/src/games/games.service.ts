@@ -58,6 +58,15 @@ export class GamesService {
       this.prisma.game.findMany({
         include: {
           winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
+          finalWinner: {
+            select: { id: true, number: true, userId: true },
+          },
+          tieBreakCandidates: {
+            include: {
+              card: { select: { id: true, number: true, userId: true } },
+            },
+            orderBy: { card: { number: 'asc' } },
+          },
           _count: { select: { drawnBalls: true, winners: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -86,6 +95,27 @@ export class GamesService {
       include: {
         winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
         drawnBalls: { orderBy: { drawOrder: 'asc' } },
+        finalWinner: {
+          select: {
+            id: true,
+            number: true,
+            userId: true,
+            user: { select: { id: true, name: true } },
+          },
+        },
+        tieBreakCandidates: {
+          include: {
+            card: {
+              select: {
+                id: true,
+                number: true,
+                userId: true,
+                user: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { card: { number: 'asc' } },
+        },
         winners: {
           include: {
             card: { include: { user: { select: { id: true, name: true } } } },
@@ -108,7 +138,9 @@ export class GamesService {
         }
 
         const [active, assignedCards] = await Promise.all([
-          tx.game.findFirst({ where: { status: 'ACTIVE' } }),
+          tx.game.findFirst({
+            where: { status: { in: ['ACTIVE', 'TIE_BREAK'] } },
+          }),
           tx.card.count(),
         ]);
         if (active)

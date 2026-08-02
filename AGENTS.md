@@ -78,3 +78,20 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 - El envío a grupos depende de la elegibilidad de la cuenta de Meta; debe existir un modo alternativo de notificación individual a responsables.
 - Los fallos de WhatsApp no deben revertir ni bloquear el resultado del sorteo.
 - Registrar entregas y reintentos de WhatsApp de forma idempotente y no almacenar credenciales de Meta en Git.
+- Si una jugada produce más de un ganador, el sorteo debe pasar automáticamente a estado de desempate y conservar los cartones candidatos.
+- Durante un empate, el panel administrativo debe mostrar “BINGO — EMPATE”, los números de los cartones empatados y una balotera exclusiva de desempate.
+- El administrador debe iniciar el desempate explícitamente mediante el botón “Desempatar”; únicamente participan los números de los cartones empatados y el backend elige un solo ganador al azar.
+- Los jugadores empatados reciben el aviso de empate dentro de la aplicación; el ganador definitivo recibe la notificación en la aplicación y por WhatsApp, sin que un fallo de WhatsApp altere el resultado.
+- La administración debe estar separada en paneles de Sorteos, Usuarios, WhatsApp y Panel de sorteo.
+- La sesión administrativa dura 12 horas, se invalida al cerrar sesión y todos los endpoints administrativos y conexiones en tiempo real validan una sesión vigente con rol ADMIN.
+- Debe ser posible crear sorteos en borrador mientras otro sorteo está activo o en desempate; el botón para iniciar permanece deshabilitado hasta que no exista otro sorteo bloqueante.
+- Todos los estados, validaciones y mensajes visibles deben presentarse en español, tanto en el panel administrativo como en la vista del jugador.
+- La tabla administrativa de sorteos debe mostrar completas sus columnas y acciones, sin recortar los botones.
+- En escritorio, la vista del jugador conserva dos cartones por fila aunque aumente el historial de balotas; en pantallas pequeñas se adapta a una columna sin desbordamiento horizontal.
+- El historial del panel de sorteo debe organizar las balotas en cinco columnas B-I-N-G-O junto a la balotera y la figura objetivo, con capacidad para los 15 números de cada letra.
+- Los errores HTTP deben usar códigos apropiados, mensajes en español y un identificador de incidente; los errores internos no deben exponer detalles sensibles.
+- Después de cinco intentos administrativos fallidos se bloquean nuevos intentos durante 15 minutos; la respuesta debe indicar el tiempo de reintento.
+- Las operaciones de edición de jugador y cartones deben ser atómicas, y los formularios deben impedir envíos duplicados mientras una operación está en curso.
+- El fallo de una fuente de datos administrativa no debe impedir que las demás secciones disponibles se carguen y sigan siendo utilizables.
+- Las entregas de WhatsApp pendientes o fallidas deben poder reintentarse desde la administración; si WhatsApp no está configurado debe mostrarse un error claro sin revertir datos ya guardados.
+- La interfaz debe avisar cuando se pierda la conexión en tiempo real y debe intentar reconectarse automáticamente.

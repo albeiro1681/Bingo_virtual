@@ -12,6 +12,11 @@ export class DrawsController {
     return this.draws.draw(id);
   }
 
+  @Post(':id/tie-break')
+  tieBreak(@Param('id') id: string) {
+    return this.draws.breakTie(id);
+  }
+
   @Get('presence/current')
   presence() {
     return this.draws.activePlayers();

@@ -95,6 +95,10 @@ export class DrawsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('winner:detected', payload);
   }
 
+  tieBreakCompleted(payload: unknown): void {
+    this.server.emit('tie-break:completed', payload);
+  }
+
   gameUpdated(payload: unknown): void {
     this.server.emit('game:updated', payload);
   }

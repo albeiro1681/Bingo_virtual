@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { decryptSecret, encryptSecret } from '../auth/secret-box';
@@ -174,8 +178,14 @@ export class WhatsAppService {
   }
 
   async accessLink(accessToken: string): Promise<string> {
-    const value = await this.settings();
-    return this.playerAccessLink(accessToken, value.publicAppUrl);
+    const stored = await this.prisma.whatsAppSettings.findUnique({
+      where: { id: 1 },
+      select: { publicAppUrl: true },
+    });
+    const publicAppUrl =
+      stored?.publicAppUrl ||
+      this.config.get<string>('PUBLIC_APP_URL', 'http://127.0.0.1:3000');
+    return this.playerAccessLink(accessToken, publicAppUrl);
   }
 
   async notifyWinners(input: {
@@ -227,6 +237,44 @@ export class WhatsAppService {
         gameId: input.game.id,
       });
     }
+  }
+
+  async retryDelivery(id: string) {
+    const delivery = await this.prisma.whatsAppDelivery.findUnique({
+      where: { id },
+    });
+    if (!delivery) throw new NotFoundException('No se encontró el envío');
+    const payload = delivery.payload as {
+      parameters?: unknown;
+      group?: unknown;
+    };
+    if (
+      !Array.isArray(payload.parameters) ||
+      !payload.parameters.every((value) => typeof value === 'string')
+    ) {
+      throw new BadRequestException('El envío no tiene un contenido válido');
+    }
+    await this.send({
+      kind: delivery.kind,
+      recipient: delivery.recipient,
+      templateName: delivery.templateName,
+      parameters: payload.parameters,
+      idempotencyKey: delivery.idempotencyKey,
+      userId: delivery.userId ?? undefined,
+      gameId: delivery.gameId ?? undefined,
+      winnerId: delivery.winnerId ?? undefined,
+      group: payload.group === true,
+    });
+    const retried = await this.prisma.whatsAppDelivery.findUnique({
+      where: { id },
+    });
+    if (retried?.status !== 'SENT') {
+      throw new BadRequestException(
+        retried?.error ||
+          'No fue posible enviar el mensaje. Revisa la configuración de WhatsApp',
+      );
+    }
+    return retried;
   }
 
   private async send(message: TemplateMessage): Promise<void> {
@@ -301,6 +349,7 @@ export class WhatsAppService {
           status: 'SENT',
           attempts: { increment: 1 },
           providerMessageId: body.messages?.[0]?.id,
+          error: null,
         },
       });
     } catch (error: unknown) {

@@ -134,18 +134,24 @@ export class CardsService {
       { isolationLevel: 'Serializable' },
     );
 
-    await this.whatsapp.notifyAssignment({
-      user: {
-        id: result.user.id,
-        name: result.user.name,
-        phone: result.user.phone!,
-      },
-      cardNumbers: result.cards.map((card) => card.number),
-    });
+    await this.whatsapp
+      .notifyAssignment({
+        user: {
+          id: result.user.id,
+          name: result.user.name,
+          phone: result.user.phone!,
+        },
+        cardNumbers: result.cards.map((card) => card.number),
+      })
+      .catch(() => undefined);
     return { count: result.cards.length, cards: result.cards };
   }
 
-  async updatePlayerCards(userId: string, cardNumbers: number[]) {
+  async updatePlayerCards(
+    userId: string,
+    cardNumbers: number[],
+    profile?: { name?: string; phone?: string; active?: boolean },
+  ) {
     const result = await this.prisma.$transaction(
       async (tx) => {
         const [user, current, requested, startedGames] = await Promise.all([
@@ -160,7 +166,7 @@ export class CardsService {
           }),
           tx.game.count({ where: { startedAt: { not: null } } }),
         ]);
-        if (!user || !user.phone)
+        if (!user || !(profile?.phone ?? user.phone))
           throw new NotFoundException('Player with phone not found');
         if (requested.length !== cardNumbers.length)
           throw new ConflictException('One or more card numbers do not exist');
@@ -235,19 +241,40 @@ export class CardsService {
             },
           });
         }
-        return { user, cardNumbers: [...cardNumbers].sort((a, b) => a - b) };
+        const updatedUser = profile
+          ? await tx.user.update({
+              where: { id: userId },
+              data: {
+                ...(profile.name !== undefined
+                  ? { name: profile.name.trim() }
+                  : {}),
+                ...(profile.phone !== undefined
+                  ? { phone: profile.phone }
+                  : {}),
+                ...(profile.active !== undefined
+                  ? { active: profile.active }
+                  : {}),
+              },
+            })
+          : user;
+        return {
+          user: updatedUser,
+          cardNumbers: [...cardNumbers].sort((a, b) => a - b),
+        };
       },
       { isolationLevel: 'Serializable' },
     );
 
-    await this.whatsapp.notifyAssignment({
-      user: {
-        id: result.user.id,
-        name: result.user.name,
-        phone: result.user.phone!,
-      },
-      cardNumbers: result.cardNumbers,
-    });
+    await this.whatsapp
+      .notifyAssignment({
+        user: {
+          id: result.user.id,
+          name: result.user.name,
+          phone: result.user.phone!,
+        },
+        cardNumbers: result.cardNumbers,
+      })
+      .catch(() => undefined);
     return {
       count: result.cardNumbers.length,
       cardNumbers: result.cardNumbers,

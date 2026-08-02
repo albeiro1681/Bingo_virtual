@@ -42,6 +42,10 @@ export class CardsController {
     @Param('userId') userId: string,
     @Body() dto: UpdatePlayerCardsDto,
   ) {
-    return this.cards.updatePlayerCards(userId, dto.cardNumbers);
+    return this.cards.updatePlayerCards(userId, dto.cardNumbers, {
+      name: dto.name,
+      phone: dto.phone,
+      active: dto.active,
+    });
   }
 }

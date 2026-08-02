@@ -44,14 +44,16 @@ export class UsersService {
         },
       },
     });
-    const accessLink = await this.whatsapp.notifyPlayerAccess({
-      user: {
-        id: user.id,
-        name: user.name,
-        phone: user.phone!,
-      },
-      accessToken,
-    });
+    const accessLink = await this.whatsapp
+      .notifyPlayerAccess({
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone!,
+        },
+        accessToken,
+      })
+      .catch(() => this.whatsapp.accessLink(accessToken));
     return { ...user, accessToken, accessLink };
   }
 
@@ -70,7 +72,7 @@ export class UsersService {
         },
         whatsappDeliveries: {
           where: { kind: 'PLAYER_ACCESS' },
-          select: { status: true, updatedAt: true, error: true },
+          select: { id: true, status: true, updatedAt: true, error: true },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },

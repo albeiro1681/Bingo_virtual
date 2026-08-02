@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomInt } from 'node:crypto';
 import {
   findWinningPatterns,
   matchesCustomPattern,
@@ -83,13 +84,26 @@ export class DrawsService {
             });
           }
 
+          const tied = winningCards.length > 1;
+          if (tied) {
+            await tx.tieBreakCandidate.createMany({
+              data: winningCards.map((card) => ({
+                gameId,
+                cardId: card.id,
+              })),
+              skipDuplicates: true,
+            });
+          }
+
           const finished = winningCards.length > 0 || available.length === 1;
           const updatedGame = finished
             ? await tx.game.update({
                 where: { id: gameId },
                 data: {
-                  status: 'FINISHED',
-                  finishedAt: new Date(),
+                  status: tied ? 'TIE_BREAK' : 'FINISHED',
+                  finishedAt: tied ? null : new Date(),
+                  finalWinnerId:
+                    winningCards.length === 1 ? winningCards[0].id : undefined,
                   endedManually: false,
                 },
                 select: {
@@ -100,6 +114,7 @@ export class DrawsService {
                   startedAt: true,
                   finishedAt: true,
                   endedManually: true,
+                  finalWinnerId: true,
                 },
               })
             : {
@@ -110,6 +125,7 @@ export class DrawsService {
                 startedAt: game.startedAt,
                 finishedAt: game.finishedAt,
                 endedManually: game.endedManually,
+                finalWinnerId: game.finalWinnerId,
               };
 
           const winners =
@@ -129,7 +145,7 @@ export class DrawsService {
                 })
               : [];
 
-          return { ball, winners, game: updatedGame };
+          return { ball, winners, game: updatedGame, tied };
         },
         { isolationLevel: 'Serializable' },
       ),
@@ -138,11 +154,95 @@ export class DrawsService {
     this.gateway.ballDrawn(result.ball);
     if (result.winners.length > 0) this.gateway.winnersDetected(result.winners);
     this.gateway.gameUpdated(result.game);
-    if (result.winners.length > 0) {
+    if (result.winners.length === 1) {
       void this.whatsapp
         .notifyWinners({ game: result.game, winners: result.winners })
         .catch(() => undefined);
     }
+    return result;
+  }
+
+  async breakTie(gameId: string) {
+    const result = await this.withTransactionRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const game = await tx.game.findUnique({
+            where: { id: gameId },
+            include: {
+              tieBreakCandidates: {
+                include: {
+                  card: {
+                    include: {
+                      user: { select: { id: true, name: true, phone: true } },
+                    },
+                  },
+                },
+                orderBy: { card: { number: 'asc' } },
+              },
+            },
+          });
+          if (!game) throw new NotFoundException('Game not found');
+          if (game.status !== 'TIE_BREAK' || game.finalWinnerId) {
+            throw new ConflictException('This game has no pending tie-break');
+          }
+          if (game.tieBreakCandidates.length < 2) {
+            throw new ConflictException(
+              'A tie-break requires at least two candidate cards',
+            );
+          }
+
+          const selected =
+            game.tieBreakCandidates[randomInt(game.tieBreakCandidates.length)];
+          const winner = await tx.winner.findFirst({
+            where: { gameId, cardId: selected.cardId },
+            include: {
+              card: {
+                include: {
+                  user: { select: { id: true, name: true, phone: true } },
+                },
+              },
+            },
+          });
+          if (!winner) {
+            throw new ConflictException('Tie-break candidate is not a winner');
+          }
+
+          const updatedGame = await tx.game.update({
+            where: { id: gameId },
+            data: {
+              status: 'FINISHED',
+              finishedAt: new Date(),
+              tieBreakCompletedAt: new Date(),
+              finalWinnerId: selected.cardId,
+            },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              winningType: true,
+              startedAt: true,
+              finishedAt: true,
+              endedManually: true,
+              finalWinnerId: true,
+              tieBreakCompletedAt: true,
+            },
+          });
+          return {
+            game: updatedGame,
+            winner,
+            cardNumber: selected.card.number,
+          };
+        },
+        { isolationLevel: 'Serializable' },
+      ),
+    );
+
+    this.gateway.tieBreakCompleted(result);
+    this.gateway.winnersDetected([result.winner]);
+    this.gateway.gameUpdated(result.game);
+    void this.whatsapp
+      .notifyWinners({ game: result.game, winners: [result.winner] })
+      .catch(() => undefined);
     return result;
   }
 

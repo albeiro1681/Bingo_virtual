@@ -9,8 +9,8 @@ export class AdminAuthController {
   constructor(private readonly auth: AdminAuthService) {}
 
   @Post('login')
-  login(@Body() dto: AdminLoginDto) {
-    return this.auth.login(dto.username, dto.password);
+  login(@Body() dto: AdminLoginDto, @Req() request: Request) {
+    return this.auth.login(dto.username, dto.password, request.ip);
   }
 
   @Post('logout')

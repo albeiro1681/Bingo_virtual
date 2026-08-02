@@ -24,11 +24,20 @@ export class PlayerController {
         orderBy: { number: 'asc' },
       }),
       this.prisma.game.findFirst({
-        where: { status: { in: ['ACTIVE', 'FINISHED'] } },
+        where: { status: { in: ['ACTIVE', 'TIE_BREAK', 'FINISHED'] } },
         include: {
           winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
           drawnBalls: { orderBy: { drawOrder: 'asc' } },
           winners: { where: { card: { userId: request.player.id } } },
+          finalWinner: {
+            select: { id: true, number: true, userId: true },
+          },
+          tieBreakCandidates: {
+            include: {
+              card: { select: { id: true, number: true, userId: true } },
+            },
+            orderBy: { card: { number: 'asc' } },
+          },
         },
         orderBy: { startedAt: 'desc' },
       }),
