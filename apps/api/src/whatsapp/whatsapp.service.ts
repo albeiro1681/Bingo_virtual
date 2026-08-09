@@ -1,9 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { decryptSecret, encryptSecret } from '../auth/secret-box';
+import { UpdateWhatsAppSettingsDto } from './dto/update-whatsapp-settings.dto';
 
 type TemplateMessage = {
-  kind: 'CARD_ASSIGNMENT' | 'WINNER_PLAYER' | 'WINNER_GROUP' | 'WINNER_CONTACT';
+  kind:
+    | 'PLAYER_ACCESS'
+    | 'CARD_ASSIGNMENT'
+    | 'WINNER_PLAYER'
+    | 'WINNER_GROUP'
+    | 'WINNER_CONTACT';
   recipient: string;
   templateName: string;
   parameters: string[];
@@ -21,34 +32,176 @@ export class WhatsAppService {
     private readonly config: ConfigService,
   ) {}
 
+  private encryptionKey(): string {
+    const value = this.config.get<string>('APP_ENCRYPTION_KEY');
+    if (!value || value.length < 32)
+      throw new BadRequestException(
+        'APP_ENCRYPTION_KEY must contain at least 32 characters',
+      );
+    return value;
+  }
+
+  private async settings() {
+    const stored = await this.prisma.whatsAppSettings.findUnique({
+      where: { id: 1 },
+    });
+    const configuredPublicAppUrl = this.config
+      .get<string>('PUBLIC_APP_URL')
+      ?.trim();
+    return {
+      accessToken: stored?.accessTokenEncrypted
+        ? decryptSecret(stored.accessTokenEncrypted, this.encryptionKey())
+        : this.config.get<string>('WHATSAPP_ACCESS_TOKEN'),
+      phoneNumberId:
+        stored?.phoneNumberId ||
+        this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID'),
+      businessAccountId: stored?.businessAccountId || '',
+      graphApiVersion:
+        stored?.graphApiVersion ||
+        this.config.get<string>('WHATSAPP_GRAPH_API_VERSION', 'v23.0'),
+      templateLanguage:
+        stored?.templateLanguage ||
+        this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE', 'es'),
+      playerAccessTemplate:
+        stored?.playerAccessTemplate ||
+        this.config.get<string>(
+          'WHATSAPP_TEMPLATE_PLAYER_ACCESS',
+          'player_access',
+        ),
+      cardAssignmentTemplate:
+        stored?.cardAssignmentTemplate ||
+        this.config.get<string>(
+          'WHATSAPP_TEMPLATE_CARD_ASSIGNMENT',
+          'card_assignment',
+        ),
+      winnerPlayerTemplate:
+        stored?.winnerPlayerTemplate ||
+        this.config.get<string>(
+          'WHATSAPP_TEMPLATE_WINNER_PLAYER',
+          'winner_player',
+        ),
+      winnerFundTemplate:
+        stored?.winnerFundTemplate ||
+        this.config.get<string>(
+          'WHATSAPP_TEMPLATE_WINNER_GROUP',
+          'winner_group',
+        ),
+      fundContacts:
+        stored?.fundContacts ||
+        this.config.get<string>('WHATSAPP_FUND_CONTACTS', ''),
+      publicAppUrl:
+        configuredPublicAppUrl ||
+        stored?.publicAppUrl ||
+        'http://127.0.0.1:3000',
+    };
+  }
+
+  async getPublicSettings() {
+    const value = await this.settings();
+    return {
+      ...value,
+      accessToken: undefined,
+      accessTokenConfigured: Boolean(value.accessToken),
+    };
+  }
+
+  async updateSettings(dto: UpdateWhatsAppSettingsDto) {
+    const { accessToken, ...data } = dto;
+    const accessTokenEncrypted = accessToken
+      ? encryptSecret(accessToken, this.encryptionKey())
+      : undefined;
+    await this.prisma.whatsAppSettings.upsert({
+      where: { id: 1 },
+      create: { id: 1, ...data, accessTokenEncrypted },
+      update: { ...data, accessTokenEncrypted },
+    });
+    return this.getPublicSettings();
+  }
+
+  async testConnection() {
+    const value = await this.settings();
+    if (!value.accessToken || !value.phoneNumberId)
+      throw new BadRequestException('Configure el token y Phone Number ID');
+    const response = await fetch(
+      `https://graph.facebook.com/${value.graphApiVersion}/${value.phoneNumberId}?fields=display_phone_number,verified_name`,
+      { headers: { Authorization: `Bearer ${value.accessToken}` } },
+    );
+    const body = (await response.json()) as {
+      display_phone_number?: string;
+      verified_name?: string;
+      error?: { message?: string };
+    };
+    if (!response.ok)
+      throw new BadRequestException(
+        body.error?.message || `Meta HTTP ${response.status}`,
+      );
+    return {
+      ok: true,
+      displayPhoneNumber: body.display_phone_number,
+      verifiedName: body.verified_name,
+    };
+  }
+
+  async notifyPlayerAccess(input: {
+    user: { id: string; name: string; phone: string };
+    accessToken: string;
+  }): Promise<string> {
+    return (await this.sendPlayerAccess(input)).accessLink;
+  }
+
+  async sendPlayerAccess(input: {
+    user: { id: string; name: string; phone: string };
+    accessToken: string;
+  }) {
+    const settings = await this.settings();
+    const link = this.playerAccessLink(
+      input.accessToken,
+      settings.publicAppUrl,
+    );
+    const delivery = await this.send({
+      kind: 'PLAYER_ACCESS',
+      recipient: input.user.phone,
+      templateName: settings.playerAccessTemplate,
+      parameters: [input.user.name, link],
+      idempotencyKey: `player-access:${input.user.id}:${Date.now()}`,
+      userId: input.user.id,
+    });
+    return {
+      accessLink: link,
+      status: delivery.status,
+      error: delivery.error,
+    };
+  }
+
   async notifyAssignment(input: {
     user: { id: string; name: string; phone: string };
-    game: { id: string; name: string };
     cardNumbers: number[];
-    accessToken: string;
-  }): Promise<void> {
-    const baseUrl = this.config.get<string>(
-      'PUBLIC_APP_URL',
-      'http://127.0.0.1:3000',
-    );
-    const link = `${baseUrl.replace(/\/$/, '')}/player?token=${encodeURIComponent(input.accessToken)}`;
-    await this.send({
+  }) {
+    const settings = await this.settings();
+    return this.send({
       kind: 'CARD_ASSIGNMENT',
       recipient: input.user.phone,
-      templateName: this.config.get<string>(
-        'WHATSAPP_TEMPLATE_CARD_ASSIGNMENT',
-        'card_assignment',
-      ),
-      parameters: [
-        input.user.name,
-        input.game.name,
-        input.cardNumbers.join(', '),
-        link,
-      ],
-      idempotencyKey: `assignment:${input.game.id}:${input.user.id}:${input.cardNumbers.join('-')}`,
+      templateName: settings.cardAssignmentTemplate,
+      parameters: [input.user.name, input.cardNumbers.join(', ')],
+      idempotencyKey: `assignment:${input.user.id}:${input.cardNumbers.join('-')}`,
       userId: input.user.id,
-      gameId: input.game.id,
     });
+  }
+
+  playerAccessLink(accessToken: string, baseUrl: string): string {
+    return `${baseUrl.replace(/\/$/, '')}/player?token=${encodeURIComponent(accessToken)}`;
+  }
+
+  async accessLink(accessToken: string): Promise<string> {
+    const stored = await this.prisma.whatsAppSettings.findUnique({
+      where: { id: 1 },
+      select: { publicAppUrl: true },
+    });
+    const publicAppUrl =
+      this.config.get<string>('PUBLIC_APP_URL')?.trim() ||
+      stored?.publicAppUrl ||
+      'http://127.0.0.1:3000';
+    return this.playerAccessLink(accessToken, publicAppUrl);
   }
 
   async notifyWinners(input: {
@@ -61,15 +214,13 @@ export class WhatsAppService {
       };
     }>;
   }): Promise<void> {
+    const settings = await this.settings();
     for (const winner of input.winners) {
       if (!winner.card.user.phone) continue;
       await this.send({
         kind: 'WINNER_PLAYER',
         recipient: winner.card.user.phone,
-        templateName: this.config.get<string>(
-          'WHATSAPP_TEMPLATE_WINNER_PLAYER',
-          'winner_player',
-        ),
+        templateName: settings.winnerPlayerTemplate,
         parameters: [
           winner.card.user.name,
           input.game.name,
@@ -88,25 +239,7 @@ export class WhatsAppService {
           `${winner.card.user.name} (cartón ${winner.card.number ?? '—'})`,
       )
       .join(', ');
-    const groupId = this.config.get<string>('WHATSAPP_GROUP_ID');
-    if (groupId) {
-      await this.send({
-        kind: 'WINNER_GROUP',
-        recipient: groupId,
-        templateName: this.config.get<string>(
-          'WHATSAPP_TEMPLATE_WINNER_GROUP',
-          'winner_group',
-        ),
-        parameters: [input.game.name, summary],
-        idempotencyKey: `winner-group:${input.game.id}:${input.winners.map((winner) => winner.id).join('-')}`,
-        gameId: input.game.id,
-        group: true,
-      });
-      return;
-    }
-
-    const contacts = this.config
-      .get<string>('WHATSAPP_FUND_CONTACTS', '')
+    const contacts = settings.fundContacts
       .split(',')
       .map((phone) => phone.trim())
       .filter(Boolean);
@@ -114,10 +247,7 @@ export class WhatsAppService {
       await this.send({
         kind: 'WINNER_CONTACT',
         recipient: phone,
-        templateName: this.config.get<string>(
-          'WHATSAPP_TEMPLATE_WINNER_GROUP',
-          'winner_group',
-        ),
+        templateName: settings.winnerFundTemplate,
         parameters: [input.game.name, summary],
         idempotencyKey: `winner-contact:${input.game.id}:${phone}:${input.winners.map((winner) => winner.id).join('-')}`,
         gameId: input.game.id,
@@ -125,7 +255,45 @@ export class WhatsAppService {
     }
   }
 
-  private async send(message: TemplateMessage): Promise<void> {
+  async retryDelivery(id: string) {
+    const delivery = await this.prisma.whatsAppDelivery.findUnique({
+      where: { id },
+    });
+    if (!delivery) throw new NotFoundException('No se encontró el envío');
+    const payload = delivery.payload as {
+      parameters?: unknown;
+      group?: unknown;
+    };
+    if (
+      !Array.isArray(payload.parameters) ||
+      !payload.parameters.every((value) => typeof value === 'string')
+    ) {
+      throw new BadRequestException('El envío no tiene un contenido válido');
+    }
+    await this.send({
+      kind: delivery.kind,
+      recipient: delivery.recipient,
+      templateName: delivery.templateName,
+      parameters: payload.parameters,
+      idempotencyKey: delivery.idempotencyKey,
+      userId: delivery.userId ?? undefined,
+      gameId: delivery.gameId ?? undefined,
+      winnerId: delivery.winnerId ?? undefined,
+      group: payload.group === true,
+    });
+    const retried = await this.prisma.whatsAppDelivery.findUnique({
+      where: { id },
+    });
+    if (retried?.status !== 'SENT') {
+      throw new BadRequestException(
+        retried?.error ||
+          'No fue posible enviar el mensaje. Revisa la configuración de WhatsApp',
+      );
+    }
+    return retried;
+  }
+
+  private async send(message: TemplateMessage) {
     const delivery = await this.prisma.whatsAppDelivery.upsert({
       where: { idempotencyKey: message.idempotencyKey },
       create: {
@@ -143,17 +311,15 @@ export class WhatsAppService {
       },
       update: {},
     });
-    if (delivery.status === 'SENT') return;
+    if (delivery.status === 'SENT') return delivery;
 
-    const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    if (!token || !phoneNumberId) return;
+    const settings = await this.settings();
+    const token = settings.accessToken;
+    const phoneNumberId = settings.phoneNumberId;
+    if (!token || !phoneNumberId) return delivery;
 
     try {
-      const version = this.config.get<string>(
-        'WHATSAPP_GRAPH_API_VERSION',
-        'v23.0',
-      );
+      const version = settings.graphApiVersion;
       const response = await fetch(
         `https://graph.facebook.com/${version}/${phoneNumberId}/messages`,
         {
@@ -170,10 +336,7 @@ export class WhatsAppService {
             template: {
               name: message.templateName,
               language: {
-                code: this.config.get<string>(
-                  'WHATSAPP_TEMPLATE_LANGUAGE',
-                  'es',
-                ),
+                code: settings.templateLanguage,
               },
               components: [
                 {
@@ -196,16 +359,17 @@ export class WhatsAppService {
         throw new Error(
           body.error?.message ?? `WhatsApp HTTP ${response.status}`,
         );
-      await this.prisma.whatsAppDelivery.update({
+      return await this.prisma.whatsAppDelivery.update({
         where: { id: delivery.id },
         data: {
           status: 'SENT',
           attempts: { increment: 1 },
           providerMessageId: body.messages?.[0]?.id,
+          error: null,
         },
       });
     } catch (error: unknown) {
-      await this.prisma.whatsAppDelivery.update({
+      return await this.prisma.whatsAppDelivery.update({
         where: { id: delivery.id },
         data: {
           status: 'FAILED',

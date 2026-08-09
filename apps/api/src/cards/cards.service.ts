@@ -3,42 +3,37 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { generateAccessToken, hashAccessToken } from '../auth/token';
 import { PrismaService } from '../prisma/prisma.service';
+import { DrawsGateway } from '../draws/draws.gateway';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { generateCard, seededRandom } from './card-generator';
+import { CARD_CATALOG_SIZE, generateCardCatalog } from './card-generator';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
-
-const CARD_CATALOG_SIZE = 120;
 
 @Injectable()
 export class CardsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly draws: DrawsGateway,
   ) {}
 
-  list(gameId?: string) {
+  list() {
     return this.prisma.card.findMany({
-      where: gameId ? { gameId } : undefined,
       include: {
         user: { select: { id: true, name: true, phone: true } },
-        game: { select: { id: true, name: true, status: true } },
         cells: { orderBy: [{ column: 'asc' }, { row: 'asc' }] },
       },
-      orderBy: [{ gameId: 'asc' }, { number: 'asc' }],
+      orderBy: { number: 'asc' },
     });
   }
 
-  catalog(gameId?: string) {
+  catalog() {
     return this.prisma.cardTemplate.findMany({
       include: {
         cells: { orderBy: [{ column: 'asc' }, { row: 'asc' }] },
-        cards: {
-          where: gameId ? { gameId } : { id: '__none__' },
+        card: {
           select: {
             id: true,
-            gameId: true,
             user: { select: { id: true, name: true } },
           },
         },
@@ -58,12 +53,13 @@ export class CardsService {
             'The card catalog is incomplete and requires manual review',
           );
         }
+        const catalog = generateCardCatalog();
         for (let number = 1; number <= CARD_CATALOG_SIZE; number += 1) {
           await tx.cardTemplate.create({
             data: {
               number,
               cells: {
-                create: generateCard(seededRandom(0xfec50000 + number)),
+                create: catalog[number - 1],
               },
             },
           });
@@ -75,12 +71,10 @@ export class CardsService {
   }
 
   async generate(dto: GenerateCardsDto) {
-    const accessToken = generateAccessToken();
     const result = await this.prisma.$transaction(
       async (tx) => {
-        const [user, game, templates] = await Promise.all([
+        const [user, templates] = await Promise.all([
           tx.user.findUnique({ where: { id: dto.userId } }),
-          tx.game.findUnique({ where: { id: dto.gameId } }),
           tx.cardTemplate.findMany({
             where: { number: { in: dto.cardNumbers } },
             include: { cells: true },
@@ -89,12 +83,6 @@ export class CardsService {
         if (!user || user.role !== 'PLAYER' || !user.active || !user.phone) {
           throw new NotFoundException('Active player with phone not found');
         }
-        if (!game) throw new NotFoundException('Game not found');
-        if (game.status !== 'DRAFT') {
-          throw new ConflictException(
-            'Cards can only be assigned to draft games',
-          );
-        }
         if (templates.length !== dto.cardNumbers.length) {
           throw new ConflictException(
             'One or more card numbers do not exist in the master catalog',
@@ -102,7 +90,6 @@ export class CardsService {
         }
         const assigned = await tx.card.findMany({
           where: {
-            gameId: dto.gameId,
             templateId: { in: templates.map((card) => card.id) },
           },
           select: { number: true },
@@ -113,19 +100,14 @@ export class CardsService {
           );
         }
 
-        await tx.user.update({
-          where: { id: user.id },
-          data: { tokenHash: hashAccessToken(accessToken) },
-        });
         const cards: Array<{ id: string; serial: string; number: number }> = [];
         for (const template of templates.sort((a, b) => a.number - b.number)) {
           const card = await tx.card.create({
             data: {
-              serial: `${game.id}-FECSUPOL-${String(template.number).padStart(3, '0')}`,
+              serial: `FECSUPOL-${String(template.number).padStart(3, '0')}`,
               number: template.number,
               templateId: template.id,
               userId: user.id,
-              gameId: game.id,
               cells: {
                 create: template.cells.map(
                   ({ row, column, number, isFree }) => ({
@@ -139,23 +121,197 @@ export class CardsService {
             },
             select: { id: true, serial: true },
           });
+          await tx.cardAssignmentAudit.create({
+            data: {
+              cardId: card.id,
+              cardNumber: template.number,
+              newUserId: user.id,
+              action: 'ASSIGNED',
+            },
+          });
           cards.push({ ...card, number: template.number });
         }
-        return { user, game, cards };
+        return { user, cards };
       },
       { isolationLevel: 'Serializable' },
     );
 
-    await this.whatsapp.notifyAssignment({
-      user: {
-        id: result.user.id,
-        name: result.user.name,
-        phone: result.user.phone!,
-      },
-      game: { id: result.game.id, name: result.game.name },
-      cardNumbers: result.cards.map((card) => card.number),
-      accessToken,
-    });
+    await this.draws.cardsUpdated(result.user.id);
+    await this.whatsapp
+      .notifyAssignment({
+        user: {
+          id: result.user.id,
+          name: result.user.name,
+          phone: result.user.phone!,
+        },
+        cardNumbers: result.cards.map((card) => card.number),
+      })
+      .catch(() => undefined);
     return { count: result.cards.length, cards: result.cards };
+  }
+
+  async updatePlayerCards(
+    userId: string,
+    cardNumbers: number[],
+    profile?: { name?: string; phone?: string; active?: boolean },
+    sendWhatsApp = true,
+  ) {
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const [user, current, requested, startedGames] = await Promise.all([
+          tx.user.findFirst({ where: { id: userId, role: 'PLAYER' } }),
+          tx.card.findMany({
+            where: { userId },
+            include: { template: { include: { cells: true } } },
+          }),
+          tx.cardTemplate.findMany({
+            where: { number: { in: cardNumbers } },
+            include: { cells: true, card: true },
+          }),
+          tx.game.count({ where: { startedAt: { not: null } } }),
+        ]);
+        if (!user || !(profile?.phone ?? user.phone))
+          throw new NotFoundException('Player with phone not found');
+        if (requested.length !== cardNumbers.length)
+          throw new ConflictException('One or more card numbers do not exist');
+
+        const desired = new Set(cardNumbers);
+        const removed = current.filter((card) => !desired.has(card.number));
+        const transferred = requested.filter(
+          (template) => template.card && template.card.userId !== userId,
+        );
+        if (
+          startedGames > 0 &&
+          (removed.length > 0 || transferred.length > 0)
+        ) {
+          throw new ConflictException(
+            'Assigned cards are permanently locked because a draw has already started',
+          );
+        }
+
+        for (const card of removed) {
+          await tx.cardAssignmentAudit.create({
+            data: {
+              cardId: card.id,
+              cardNumber: card.number,
+              previousUserId: userId,
+              action: 'UNASSIGNED',
+            },
+          });
+          await tx.card.delete({ where: { id: card.id } });
+        }
+        for (const template of requested.sort((a, b) => a.number - b.number)) {
+          if (template.card?.userId === userId) continue;
+          if (template.card) {
+            await tx.cardAssignmentAudit.create({
+              data: {
+                cardId: template.card.id,
+                cardNumber: template.number,
+                previousUserId: template.card.userId,
+                newUserId: userId,
+                action: 'REASSIGNED',
+              },
+            });
+            await tx.card.update({
+              where: { id: template.card.id },
+              data: { userId },
+            });
+            continue;
+          }
+          const card = await tx.card.create({
+            data: {
+              serial: `FECSUPOL-${String(template.number).padStart(3, '0')}`,
+              number: template.number,
+              templateId: template.id,
+              userId,
+              cells: {
+                create: template.cells.map(
+                  ({ row, column, number, isFree }) => ({
+                    row,
+                    column,
+                    number,
+                    isFree,
+                  }),
+                ),
+              },
+            },
+          });
+          await tx.cardAssignmentAudit.create({
+            data: {
+              cardId: card.id,
+              cardNumber: template.number,
+              newUserId: userId,
+              action: 'ASSIGNED',
+            },
+          });
+        }
+        const updatedUser = profile
+          ? await tx.user.update({
+              where: { id: userId },
+              data: {
+                ...(profile.name !== undefined
+                  ? { name: profile.name.trim() }
+                  : {}),
+                ...(profile.phone !== undefined
+                  ? { phone: profile.phone }
+                  : {}),
+                ...(profile.active !== undefined
+                  ? { active: profile.active }
+                  : {}),
+              },
+            })
+          : user;
+        return {
+          user: updatedUser,
+          cardNumbers: [...cardNumbers].sort((a, b) => a - b),
+        };
+      },
+      { isolationLevel: 'Serializable' },
+    );
+
+    await this.draws.cardsUpdated(userId);
+    const delivery = sendWhatsApp
+      ? await this.whatsapp
+          .notifyAssignment({
+            user: {
+              id: result.user.id,
+              name: result.user.name,
+              phone: result.user.phone!,
+            },
+            cardNumbers: result.cardNumbers,
+          })
+          .catch(() => undefined)
+      : undefined;
+    return {
+      count: result.cardNumbers.length,
+      cardNumbers: result.cardNumbers,
+      whatsappStatus: sendWhatsApp ? (delivery?.status ?? 'FAILED') : 'SKIPPED',
+    };
+  }
+
+  async resendPlayerCards(userId: string, cardNumbers: number[]) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, role: 'PLAYER', active: true },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        cards: {
+          where: { number: { in: cardNumbers } },
+          select: { number: true },
+        },
+      },
+    });
+    if (!user?.phone)
+      throw new NotFoundException('Active player with phone not found');
+    if (user.cards.length !== cardNumbers.length)
+      throw new ConflictException(
+        'One or more cards do not belong to this player',
+      );
+    const delivery = await this.whatsapp.notifyAssignment({
+      user: { id: user.id, name: user.name, phone: user.phone },
+      cardNumbers: [...cardNumbers].sort((a, b) => a - b),
+    });
+    return { status: delivery.status, cardNumbers };
   }
 }

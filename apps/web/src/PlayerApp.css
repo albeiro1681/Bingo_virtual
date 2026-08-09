@@ -30,7 +30,7 @@
   font-weight: 800;
 }
 .player-view {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: auto;
   padding: 2rem;
 }
@@ -52,6 +52,23 @@
   border-radius: 0.5rem;
   background: #fff;
 }
+.player-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.player-view > header .download-cards-button {
+  border-color: #176b55;
+  background: #176b55;
+  color: #fff;
+  font-weight: 800;
+}
+.player-view > header .download-cards-button:disabled {
+  border-color: #cad6d1;
+  background: #e8efec;
+  color: #6b7772;
+  cursor: not-allowed;
+}
 .winner-banner {
   display: flex;
   align-items: center;
@@ -65,6 +82,21 @@
 .winner-banner strong {
   font-size: 2rem;
 }
+.tie-banner,
+.tie-result-banner {
+  display: grid;
+  gap: 0.35rem;
+  margin: 1.5rem 0;
+  padding: 1rem 1.5rem;
+  border: 2px solid #d87816;
+  border-radius: 1rem;
+  background: #fff3cd;
+  color: #713c00;
+}
+.tie-banner strong,
+.tie-result-banner strong {
+  font-size: 1.35rem;
+}
 .player-message,
 .empty-state {
   margin: 1rem 0;
@@ -74,11 +106,12 @@
 }
 .player-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.25rem;
   margin-top: 1.5rem;
 }
 .player-card {
+  min-width: 0;
   padding: 1.25rem;
   border: 2px solid #d7e2dd;
   border-radius: 1rem;
@@ -88,6 +121,10 @@
 .player-card.is-winner {
   border-color: #e1b925;
   box-shadow: 0 0 0 4px #ffe78555;
+}
+.player-card.is-tied {
+  border-color: #d87816;
+  box-shadow: 0 0 0 4px #f6b94a44;
 }
 .card-top {
   display: flex;
@@ -109,6 +146,7 @@
 .latest-player-ball strong {
   font-size: 1.8rem;
   line-height: 1;
+  transform: translateY(-0.15rem);
 }
 .objective {
   font-weight: 700;
@@ -149,6 +187,16 @@
   color: #fff;
   border-color: #176b55;
 }
+.bingo-row button.marked.target {
+  border-color: #9dd8c6;
+  background: #27845f;
+  box-shadow: inset 0 0 0 2px #e3f4ee;
+}
+.bingo-row span.free {
+  border-color: #176b55;
+  background: #176b55;
+  color: #fff;
+}
 .player-history {
   margin-top: 1rem;
 }
@@ -172,12 +220,25 @@
   margin-top: 1rem;
   color: #687872;
 }
-@media (max-width: 520px) {
+@media (min-width: 801px) {
+  .player-cards {
+    grid-template-columns: repeat(2, minmax(0, 45%));
+    justify-content: center;
+  }
+}
+@media (max-width: 800px) {
   .player-view {
     padding: 1rem;
   }
   .player-cards {
     grid-template-columns: 1fr;
+  }
+  .player-view > header {
+    gap: 1rem;
+  }
+  .player-header-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
   }
   .player-card {
     padding: 0.8rem;

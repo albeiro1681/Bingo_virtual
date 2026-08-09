@@ -1,7 +1,17 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { AdminTokenGuard } from '../auth/admin-token.guard';
 import { CardsService } from './cards.service';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
+import { UpdatePlayerCardsDto } from './dto/update-player-cards.dto';
+import { ResendPlayerCardsDto } from './dto/resend-player-cards.dto';
 
 @Controller('api/admin/cards')
 @UseGuards(AdminTokenGuard)
@@ -9,13 +19,13 @@ export class CardsController {
   constructor(private readonly cards: CardsService) {}
 
   @Get()
-  list(@Query('gameId') gameId?: string) {
-    return this.cards.list(gameId);
+  list() {
+    return this.cards.list();
   }
 
   @Get('catalog')
-  catalog(@Query('gameId') gameId?: string) {
-    return this.cards.catalog(gameId);
+  catalog() {
+    return this.cards.catalog();
   }
 
   @Post('catalog/initialize')
@@ -26,5 +36,30 @@ export class CardsController {
   @Post('generate')
   generate(@Body() dto: GenerateCardsDto) {
     return this.cards.generate(dto);
+  }
+
+  @Put('player/:userId')
+  updatePlayerCards(
+    @Param('userId') userId: string,
+    @Body() dto: UpdatePlayerCardsDto,
+  ) {
+    return this.cards.updatePlayerCards(
+      userId,
+      dto.cardNumbers,
+      {
+        name: dto.name,
+        phone: dto.phone,
+        active: dto.active,
+      },
+      dto.sendWhatsApp ?? true,
+    );
+  }
+
+  @Post('player/:userId/resend')
+  resendPlayerCards(
+    @Param('userId') userId: string,
+    @Body() dto: ResendPlayerCardsDto,
+  ) {
+    return this.cards.resendPlayerCards(userId, dto.cardNumbers);
   }
 }

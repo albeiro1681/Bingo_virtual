@@ -34,10 +34,36 @@ export class DrawsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    const user = await this.prisma.user.findFirst({
-      where: { tokenHash: hashAccessToken(token), active: true },
-      select: { id: true, name: true, role: true },
+    const tokenHash = hashAccessToken(token);
+    const session = await this.prisma.adminSession.findFirst({
+      where: {
+        tokenHash,
+        expiresAt: { gt: new Date() },
+        user: { active: true, role: 'ADMIN' },
+      },
+      select: { user: { select: { id: true, name: true, role: true } } },
     });
+    let user = session?.user;
+    let playerHasCards = false;
+    if (!user) {
+      const player = await this.prisma.user.findFirst({
+        where: {
+          tokenHash,
+          active: true,
+          role: 'PLAYER',
+        },
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          _count: { select: { cards: true } },
+        },
+      });
+      if (player) {
+        playerHasCards = player._count.cards > 0;
+        user = { id: player.id, name: player.name, role: player.role };
+      }
+    }
     if (!user) {
       socket.disconnect(true);
       return;
@@ -47,6 +73,8 @@ export class DrawsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     data.userId = user.id;
     data.role = user.role;
     if (user.role === 'PLAYER') {
+      await socket.join(this.playerRoom(user.id));
+      if (!playerHasCards) return;
       const presence = this.players.get(user.id) ?? {
         id: user.id,
         name: user.name,
@@ -84,7 +112,36 @@ export class DrawsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('winner:detected', payload);
   }
 
+  tieBreakCompleted(payload: unknown): void {
+    this.server.emit('tie-break:completed', payload);
+  }
+
   gameUpdated(payload: unknown): void {
     this.server.emit('game:updated', payload);
+  }
+
+  async cardsUpdated(userId: string): Promise<void> {
+    const room = this.playerRoom(userId);
+    this.server.to(room).emit('cards:updated', { userId });
+    const sockets = await this.server.in(room).fetchSockets();
+    if (sockets.length === 0) return;
+    const player = await this.prisma.user.findFirst({
+      where: { id: userId, active: true, role: 'PLAYER', cards: { some: {} } },
+      select: { id: true, name: true },
+    });
+    if (!player) {
+      this.players.delete(userId);
+      this.emitPresence();
+      return;
+    }
+    this.players.set(userId, {
+      ...player,
+      sockets: new Set(sockets.map((socket) => socket.id)),
+    });
+    this.emitPresence();
+  }
+
+  private playerRoom(userId: string): string {
+    return `player:${userId}`;
   }
 }

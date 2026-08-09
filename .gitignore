@@ -11,3 +11,6 @@ apps/api/src/generated/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Evidencia local generada por las pruebas de navegador
+artifacts/

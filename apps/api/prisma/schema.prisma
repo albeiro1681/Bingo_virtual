@@ -16,6 +16,7 @@ enum UserRole {
 enum GameStatus {
   DRAFT
   ACTIVE
+  TIE_BREAK
   FINISHED
   CANCELLED
 }
@@ -30,6 +31,7 @@ enum WinnerType {
 }
 
 enum WhatsAppDeliveryKind {
+  PLAYER_ACCESS
   CARD_ASSIGNMENT
   WINNER_PLAYER
   WINNER_GROUP
@@ -63,37 +65,90 @@ model BingoPatternCell {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  name        String
-  role        UserRole @default(PLAYER)
-  tokenHash   String   @unique
-  phone       String?  @unique
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  cards       Card[]
+  id                 String             @id @default(cuid())
+  name               String
+  role               UserRole           @default(PLAYER)
+  tokenHash          String             @unique
+  tokenEncrypted     String?
+  username           String?            @unique
+  passwordHash       String?
+  phone              String?            @unique
+  active             Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  cards              Card[]
+  winners            Winner[]
   whatsappDeliveries WhatsAppDelivery[]
+  adminSessions      AdminSession[]
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model WhatsAppSettings {
+  id                     Int      @id @default(1)
+  accessTokenEncrypted   String?
+  phoneNumberId          String?
+  businessAccountId      String?
+  graphApiVersion        String   @default("v23.0")
+  templateLanguage       String   @default("es")
+  playerAccessTemplate   String   @default("player_access")
+  cardAssignmentTemplate String   @default("card_assignment")
+  winnerPlayerTemplate   String   @default("winner_player")
+  winnerFundTemplate     String   @default("winner_group")
+  fundContacts           String?
+  publicAppUrl           String?
+  updatedAt              DateTime @updatedAt
+}
+
+model CardAssignmentAudit {
+  id             String   @id @default(cuid())
+  cardId         String
+  cardNumber     Int
+  previousUserId String?
+  newUserId      String?
+  action         String
+  createdAt      DateTime @default(now())
+
+  @@index([cardId])
+  @@index([createdAt])
 }
 
 model Game {
-  id           String      @id @default(cuid())
-  name         String
-  status       GameStatus  @default(DRAFT)
-  winningType  WinnerType  @default(FULL_CARD)
-  patternId    String?
-  patternName  String?
-  startedAt    DateTime?
-  finishedAt   DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  cards        Card[]
-  drawnBalls   DrawnBall[]
-  winners      Winner[]
-  pattern      BingoPattern?     @relation(fields: [patternId], references: [id], onDelete: Restrict)
-  winningCells GameWinningCell[]
-  whatsappDeliveries WhatsAppDelivery[]
+  id                  String              @id @default(cuid())
+  name                String
+  status              GameStatus          @default(DRAFT)
+  winningType         WinnerType          @default(FULL_CARD)
+  patternId           String?
+  patternName         String?
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  endedManually       Boolean             @default(false)
+  finalWinnerId       String?
+  tieBreakCompletedAt DateTime?
+  prizeAmount         Decimal?            @db.Decimal(18, 0)
+  currencyCode        String              @default("COP")
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  drawnBalls          DrawnBall[]
+  winners             Winner[]
+  finalWinner         Card?               @relation("FinalWinner", fields: [finalWinnerId], references: [id], onDelete: Restrict)
+  tieBreakCandidates  TieBreakCandidate[]
+  pattern             BingoPattern?       @relation(fields: [patternId], references: [id], onDelete: Restrict)
+  winningCells        GameWinningCell[]
+  whatsappDeliveries  WhatsAppDelivery[]
 
   @@index([patternId])
+  @@index([finalWinnerId])
 }
 
 model GameWinningCell {
@@ -107,23 +162,20 @@ model GameWinningCell {
 }
 
 model Card {
-  id         String     @id @default(cuid())
-  serial     String     @unique
-  userId     String
-  gameId     String
-  templateId String?
-  number     Int?
-  createdAt  DateTime   @default(now())
-  user       User       @relation(fields: [userId], references: [id], onDelete: Restrict)
-  game       Game       @relation(fields: [gameId], references: [id], onDelete: Restrict)
-  template   CardTemplate? @relation(fields: [templateId], references: [id], onDelete: Restrict)
-  cells      CardCell[]
-  winners    Winner[]
+  id                 String              @id @default(cuid())
+  serial             String              @unique
+  userId             String
+  templateId         String              @unique
+  number             Int                 @unique
+  createdAt          DateTime            @default(now())
+  user               User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  template           CardTemplate        @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  cells              CardCell[]
+  winners            Winner[]
+  gamesWon           Game[]              @relation("FinalWinner")
+  tieBreakCandidates TieBreakCandidate[]
 
   @@index([userId])
-  @@index([gameId])
-  @@index([templateId])
-  @@unique([gameId, templateId])
 }
 
 model CardTemplate {
@@ -131,7 +183,7 @@ model CardTemplate {
   number    Int                @unique
   createdAt DateTime           @default(now())
   cells     CardTemplateCell[]
-  cards     Card[]
+  card      Card?
 }
 
 model CardTemplateCell {
@@ -148,13 +200,13 @@ model CardTemplateCell {
 }
 
 model CardCell {
-  id       String  @id @default(cuid())
-  cardId   String
-  row      Int
-  column   Int
-  number   Int?
-  isFree   Boolean @default(false)
-  card     Card    @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  id     String  @id @default(cuid())
+  cardId String
+  row    Int
+  column Int
+  number Int?
+  isFree Boolean @default(false)
+  card   Card    @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@unique([cardId, row, column])
   @@unique([cardId, number])
@@ -174,17 +226,39 @@ model DrawnBall {
 }
 
 model Winner {
-  id         String     @id @default(cuid())
-  gameId     String
-  cardId     String
-  type       WinnerType
-  detectedAt DateTime   @default(now())
-  game       Game       @relation(fields: [gameId], references: [id], onDelete: Restrict)
-  card       Card       @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  id                 String             @id @default(cuid())
+  gameId             String
+  cardId             String
+  playerId           String
+  type               WinnerType
+  prizeAmount        Decimal?           @db.Decimal(18, 0)
+  currencyCode       String             @default("COP")
+  winningBallNumber  Int?
+  isFinal            Boolean            @default(true)
+  detectedAt         DateTime           @default(now())
+  game               Game               @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  card               Card               @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  player             User               @relation(fields: [playerId], references: [id], onDelete: Restrict)
   whatsappDeliveries WhatsAppDelivery[]
 
   @@unique([gameId, cardId, type])
   @@index([gameId])
+  @@index([playerId])
+  @@index([cardId])
+  @@index([detectedAt])
+}
+
+model TieBreakCandidate {
+  id        String   @id @default(cuid())
+  gameId    String
+  cardId    String
+  createdAt DateTime @default(now())
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  card      Card     @relation(fields: [cardId], references: [id], onDelete: Restrict)
+
+  @@unique([gameId, cardId])
+  @@index([gameId])
+  @@index([cardId])
 }
 
 model WhatsAppDelivery {

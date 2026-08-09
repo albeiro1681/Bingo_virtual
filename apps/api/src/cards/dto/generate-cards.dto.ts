@@ -9,22 +9,19 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { CARD_CATALOG_SIZE } from '../card-generator';
 
 export class GenerateCardsDto {
   @IsString()
   @MinLength(1)
   userId!: string;
 
-  @IsString()
-  @MinLength(1)
-  gameId!: string;
-
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(120)
+  @ArrayMaxSize(CARD_CATALOG_SIZE)
   @ArrayUnique()
   @IsInt({ each: true })
   @Min(1, { each: true })
-  @Max(120, { each: true })
+  @Max(CARD_CATALOG_SIZE, { each: true })
   cardNumbers!: number[];
 }

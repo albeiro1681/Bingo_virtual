@@ -21,16 +21,17 @@ export class AdminTokenGuard implements CanActivate {
 
     if (!token) throw new UnauthorizedException('Admin token is required');
 
-    const admin = await this.prisma.user.findFirst({
+    const session = await this.prisma.adminSession.findFirst({
       where: {
         tokenHash: hashAccessToken(token),
-        role: 'ADMIN',
-        active: true,
+        expiresAt: { gt: new Date() },
+        user: { role: 'ADMIN', active: true },
       },
-      select: { id: true },
+      select: { id: true, userId: true },
     });
 
-    if (!admin) throw new UnauthorizedException('Invalid admin token');
+    if (!session)
+      throw new UnauthorizedException('Invalid or expired admin session');
     return true;
   }
 }

@@ -22,7 +22,8 @@ export class PlayerTokenGuard implements CanActivate {
     const token = authorization?.startsWith('Bearer ')
       ? authorization.slice('Bearer '.length).trim()
       : undefined;
-    if (!token) throw new UnauthorizedException('Player token is required');
+    if (!token)
+      throw new UnauthorizedException('Se requiere el token del jugador');
 
     const player = await this.prisma.user.findFirst({
       where: {
@@ -32,7 +33,8 @@ export class PlayerTokenGuard implements CanActivate {
       },
       select: { id: true, name: true },
     });
-    if (!player) throw new UnauthorizedException('Invalid player token');
+    if (!player)
+      throw new UnauthorizedException('El token del jugador no es válido');
 
     request.player = player;
     return true;
