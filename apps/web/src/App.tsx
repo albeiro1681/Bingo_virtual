@@ -1189,6 +1189,15 @@ function AdminApp() {
         </section>
       )}
 
+      {isDrawView && !selectedGame && (
+        <section className="wide-panel draw-empty" role="status">
+          <p className="organization">FECSUPOL</p>
+          <h1>Panel de sorteo</h1>
+          <p>No hay sorteos disponibles para presentar.</p>
+          <small>Crea un sorteo desde la administración para comenzar.</small>
+        </section>
+      )}
+
       {isDrawView && selectedGame && (
         <section
           className={`wide-panel draw-panel ${selectedGame.status === "TIE_BREAK" ? "is-tie-break" : ""}`}

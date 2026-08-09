@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DrawsGateway } from '../draws/draws.gateway';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CARD_CATALOG_SIZE, generateCardCatalog } from './card-generator';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
@@ -13,6 +14,7 @@ export class CardsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly draws: DrawsGateway,
   ) {}
 
   list() {
@@ -134,6 +136,7 @@ export class CardsService {
       { isolationLevel: 'Serializable' },
     );
 
+    await this.draws.cardsUpdated(result.user.id);
     await this.whatsapp
       .notifyAssignment({
         user: {
@@ -266,6 +269,7 @@ export class CardsService {
       { isolationLevel: 'Serializable' },
     );
 
+    await this.draws.cardsUpdated(userId);
     const delivery = sendWhatsApp
       ? await this.whatsapp
           .notifyAssignment({

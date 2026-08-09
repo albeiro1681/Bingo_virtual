@@ -45,6 +45,9 @@ export class WhatsAppService {
     const stored = await this.prisma.whatsAppSettings.findUnique({
       where: { id: 1 },
     });
+    const configuredPublicAppUrl = this.config
+      .get<string>('PUBLIC_APP_URL')
+      ?.trim();
     return {
       accessToken: stored?.accessTokenEncrypted
         ? decryptSecret(stored.accessTokenEncrypted, this.encryptionKey())
@@ -87,8 +90,9 @@ export class WhatsAppService {
         stored?.fundContacts ||
         this.config.get<string>('WHATSAPP_FUND_CONTACTS', ''),
       publicAppUrl:
+        configuredPublicAppUrl ||
         stored?.publicAppUrl ||
-        this.config.get<string>('PUBLIC_APP_URL', 'http://127.0.0.1:3000'),
+        'http://127.0.0.1:3000',
     };
   }
 
@@ -194,8 +198,9 @@ export class WhatsAppService {
       select: { publicAppUrl: true },
     });
     const publicAppUrl =
+      this.config.get<string>('PUBLIC_APP_URL')?.trim() ||
       stored?.publicAppUrl ||
-      this.config.get<string>('PUBLIC_APP_URL', 'http://127.0.0.1:3000');
+      'http://127.0.0.1:3000';
     return this.playerAccessLink(accessToken, publicAppUrl);
   }
 

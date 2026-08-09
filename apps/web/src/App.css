@@ -1069,6 +1069,23 @@ td button {
 .draw-view > .message {
   display: none !important;
 }
+.draw-view > .draw-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  width: min(680px, calc(100vw - 2rem));
+  min-height: min(420px, calc(100vh - 2rem));
+  margin: 1rem auto;
+  padding: 2rem;
+  text-align: center;
+}
+.draw-view > .draw-empty h1,
+.draw-view > .draw-empty p {
+  margin: 0.35rem 0;
+}
+.draw-view > .draw-empty small {
+  color: var(--muted);
+}
 
 @media (min-width: 981px) and (min-height: 650px) {
   .draw-view {

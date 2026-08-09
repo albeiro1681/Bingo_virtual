@@ -4,6 +4,29 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from './whatsapp.service';
 
 describe('WhatsAppService', () => {
+  it('uses PUBLIC_APP_URL for access links even when a previous URL is stored', async () => {
+    const prisma = {
+      whatsAppSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          publicAppUrl: 'https://anterior.example',
+        }),
+      },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string) =>
+        key === 'PUBLIC_APP_URL'
+          ? 'https://bingo.fecsupol.example/'
+          : undefined,
+      ),
+    } as unknown as ConfigService;
+
+    await expect(
+      new WhatsAppService(prisma, config).accessLink('token privado'),
+    ).resolves.toBe(
+      'https://bingo.fecsupol.example/player?token=token%20privado',
+    );
+  });
+
   it('reports a retry as failed when WhatsApp is not configured', async () => {
     const delivery = {
       id: 'delivery-1',

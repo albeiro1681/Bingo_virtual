@@ -59,7 +59,39 @@ npm run build
 npm start
 ```
 
+## Despliegue en Railway con Neon
+
+1. Cree el proyecto PostgreSQL en Neon y copie su cadena de conexión con SSL.
+2. Configure en Railway `DATABASE_URL`, `APP_ENCRYPTION_KEY` y
+   `PUBLIC_APP_URL`. Esta última debe ser la URL HTTPS definitiva del servicio,
+   sin una ruta al final; será la base de todos los enlaces de acceso enviados a
+   jugadores.
+3. Configure las variables `WHATSAPP_*` únicamente cuando la cuenta oficial de
+   WhatsApp Cloud API esté lista. No incluya secretos en el repositorio.
+4. Railway compilará con Railpack, aplicará las migraciones como paso previo al
+   despliegue y arrancará el único servicio Node.js mediante `railway.json`.
+5. Después del primer despliegue, cree el administrador e inicialice el catálogo
+   de 130 cartones mediante tareas administrativas explícitas si la base de Neon
+   está vacía. No ejecute la inicialización del catálogo en cada arranque.
+
+Variables obligatorias en producción:
+
+```text
+DATABASE_URL=postgresql://...neon.tech/...?...sslmode=require&channel_binding=require
+APP_ENCRYPTION_KEY=<secreto estable de al menos 32 caracteres>
+PUBLIC_APP_URL=https://<dominio-definitivo>
+```
+
+Railway ejecuta `npm run prisma:migrate:deploy --workspace api` antes de activar
+la nueva versión y luego inicia la API con `npm start`. El endpoint de salud es
+`/api/health`.
+
 ## Validaciones
+
+La vista privada del jugador muestra sus cartones completos desde la asignación,
+aunque todavía no exista un sorteo, y permite descargarlos en un único PDF con
+un máximo de cuatro cartones por página. Las asignaciones posteriores se
+actualizan sin cambiar el enlace de acceso.
 
 ```bash
 npm run lint

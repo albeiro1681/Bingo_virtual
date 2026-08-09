@@ -81,6 +81,8 @@ function PlayerApp() {
   const [message, setMessage] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
   const [connectionMessage, setConnectionMessage] = useState("");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [pdfMessage, setPdfMessage] = useState("");
 
   const request = useCallback(
     async (path: string) => {
@@ -152,6 +154,7 @@ function PlayerApp() {
     socket.on("ball:drawn", sync);
     socket.on("winner:detected", sync);
     socket.on("game:updated", sync);
+    socket.on("cards:updated", sync);
     socket.on("tie-break:completed", sync);
     socket.on("connect", () => setConnectionMessage(""));
     socket.on("connect_error", () =>
@@ -200,6 +203,7 @@ function PlayerApp() {
       card.game.finalWinnerId &&
       card.game.finalWinnerId !== card.id,
   );
+  const hasNoGame = cards.length > 0 && cards.every((card) => !card.game);
 
   const toggleMark = (cardId: string, cellId: string) => {
     setMarks((current) => {
@@ -210,6 +214,33 @@ function PlayerApp() {
       localStorage.setItem("fecs-bingo-marks", JSON.stringify(next));
       return next;
     });
+  };
+
+  const downloadCardsPdf = async () => {
+    if (!player || cards.length === 0 || generatingPdf) return;
+    setGeneratingPdf(true);
+    setPdfMessage("");
+    try {
+      const { createPlayerCardsPdf, playerCardsPdfFilename } = await import(
+        "./player-cards-pdf"
+      );
+      const bytes = await createPlayerCardsPdf({
+        playerName: player.name,
+        cards,
+      });
+      const pdfBuffer = Uint8Array.from(bytes).buffer as ArrayBuffer;
+      const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = playerCardsPdfFilename(player.name);
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setPdfMessage("No fue posible generar el PDF. Intenta nuevamente.");
+    } finally {
+      setGeneratingPdf(false);
+    }
   };
 
   if (!token)
@@ -253,19 +284,40 @@ function PlayerApp() {
           <h1>Bingo Virtual</h1>
           <p>{player ? `Hola, ${player.name}` : "Cargando…"}</p>
         </div>
-        <button
-          onClick={() => {
-            sessionStorage.removeItem("fecs-player-token");
-            setToken("");
-          }}
-        >
-          Salir
-        </button>
+        <div className="player-header-actions">
+          <button
+            type="button"
+            className="download-cards-button"
+            disabled={!cards.length || generatingPdf}
+            onClick={() => void downloadCardsPdf()}
+          >
+            {generatingPdf ? "Generando PDF…" : "Descargar cartones en PDF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              sessionStorage.removeItem("fecs-player-token");
+              setToken("");
+            }}
+          >
+            Salir
+          </button>
+        </div>
       </header>
+      {pdfMessage && (
+        <p className="player-message" role="alert">
+          {pdfMessage}
+        </p>
+      )}
       {message && <p className="player-message">{message}</p>}
       {connectionMessage && (
         <p className="player-message" role="status">
           {connectionMessage}
+        </p>
+      )}
+      {hasNoGame && (
+        <p className="player-message no-game-message" role="status">
+          Aún no hay sorteo.
         </p>
       )}
       {pendingTie && (
@@ -318,8 +370,33 @@ function PlayerApp() {
                   </div>
                 </div>
                 <p className="objective">
-                  Esperando el primer sorteo de FECSUPOL.
+                  Cartón asignado por FECSUPOL
                 </p>
+                <div className="bingo-grid">
+                  <div className="bingo-head">
+                    {columns.map((column) => (
+                      <strong key={column}>{column}</strong>
+                    ))}
+                  </div>
+                  {Array.from({ length: 5 }, (_, row) => (
+                    <div className="bingo-row" key={row}>
+                      {Array.from({ length: 5 }, (_, column) =>
+                        card.cells.find(
+                          (cell) =>
+                            cell.row === row && cell.column === column,
+                        ),
+                      ).map((cell, column) => (
+                        <span
+                          key={cell?.id ?? column}
+                          className={cell?.isFree ? "free" : undefined}
+                          aria-label={cell?.isFree ? "Centro libre" : undefined}
+                        >
+                          {cell?.isFree ? "★" : cell?.number}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </article>
             );
           const drawn = new Set(game.drawnBalls.map((ball) => ball.number));

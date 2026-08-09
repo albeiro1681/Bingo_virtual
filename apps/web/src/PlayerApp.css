@@ -52,6 +52,23 @@
   border-radius: 0.5rem;
   background: #fff;
 }
+.player-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.player-view > header .download-cards-button {
+  border-color: #176b55;
+  background: #176b55;
+  color: #fff;
+  font-weight: 800;
+}
+.player-view > header .download-cards-button:disabled {
+  border-color: #cad6d1;
+  background: #e8efec;
+  color: #6b7772;
+  cursor: not-allowed;
+}
 .winner-banner {
   display: flex;
   align-items: center;
@@ -129,6 +146,7 @@
 .latest-player-ball strong {
   font-size: 1.8rem;
   line-height: 1;
+  transform: translateY(-0.15rem);
 }
 .objective {
   font-weight: 700;
@@ -174,6 +192,11 @@
   background: #27845f;
   box-shadow: inset 0 0 0 2px #e3f4ee;
 }
+.bingo-row span.free {
+  border-color: #176b55;
+  background: #176b55;
+  color: #fff;
+}
 .player-history {
   margin-top: 1rem;
 }
@@ -209,6 +232,13 @@
   }
   .player-cards {
     grid-template-columns: 1fr;
+  }
+  .player-view > header {
+    gap: 1rem;
+  }
+  .player-header-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
   }
   .player-card {
     padding: 0.8rem;

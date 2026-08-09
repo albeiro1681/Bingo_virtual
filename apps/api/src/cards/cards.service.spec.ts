@@ -1,9 +1,14 @@
 import { ConflictException } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { DrawsGateway } from '../draws/draws.gateway';
 import type { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CardsService } from './cards.service';
 
 describe('CardsService', () => {
+  const cardsUpdated = jest.fn().mockResolvedValue(undefined);
+  const gateway = {
+    cardsUpdated,
+  } as unknown as DrawsGateway;
   it('blocks transfer after any draw has started', async () => {
     const tx = {
       user: {
@@ -37,7 +42,10 @@ describe('CardsService', () => {
       notifyAssignment: jest.fn(),
     } as unknown as WhatsAppService;
     await expect(
-      new CardsService(prisma, whatsapp).updatePlayerCards('player-2', [8]),
+      new CardsService(prisma, whatsapp, gateway).updatePlayerCards(
+        'player-2',
+        [8],
+      ),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -71,7 +79,7 @@ describe('CardsService', () => {
     } as unknown as WhatsAppService;
 
     await expect(
-      new CardsService(prisma, whatsapp).generate({
+      new CardsService(prisma, whatsapp, gateway).generate({
         userId: 'player-1',
         cardNumbers: [8],
       }),
@@ -116,7 +124,7 @@ describe('CardsService', () => {
     const whatsapp = { notifyAssignment } as unknown as WhatsAppService;
 
     await expect(
-      new CardsService(prisma, whatsapp).generate({
+      new CardsService(prisma, whatsapp, gateway).generate({
         userId: 'player-1',
         cardNumbers: [8],
       }),
@@ -174,7 +182,7 @@ describe('CardsService', () => {
     const whatsapp = { notifyAssignment } as unknown as WhatsAppService;
 
     await expect(
-      new CardsService(prisma, whatsapp).updatePlayerCards(
+      new CardsService(prisma, whatsapp, gateway).updatePlayerCards(
         'player-1',
         [8],
         undefined,
@@ -186,6 +194,7 @@ describe('CardsService', () => {
       whatsappStatus: 'SKIPPED',
     });
     expect(notifyAssignment).not.toHaveBeenCalled();
+    expect(cardsUpdated).toHaveBeenCalledWith('player-1');
   });
 
   it('rejects resending a card that does not belong to the player', async () => {
@@ -204,7 +213,10 @@ describe('CardsService', () => {
     } as unknown as WhatsAppService;
 
     await expect(
-      new CardsService(prisma, whatsapp).resendPlayerCards('player-1', [8]),
+      new CardsService(prisma, whatsapp, gateway).resendPlayerCards(
+        'player-1',
+        [8],
+      ),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });

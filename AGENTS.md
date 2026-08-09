@@ -106,6 +106,9 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 - Al confirmar un ganador definitivo se muestra una sola vez un overlay con nombre, cartón y premio; luego el ganador permanece en un resumen compacto.
 - El panel de sorteo muestra por separado la cantidad de cartones jugando y la cantidad de jugadores conectados, contando una sola vez a cada jugador.
 - En los cartones del jugador deben distinguirse visualmente celda normal, figura objetivo, marcada y marcada dentro de la figura, sin depender únicamente del color.
+- Las asignaciones iniciales o posteriores deben aparecer automáticamente en la vista privada del jugador sin recargar ni regenerar su enlace de acceso.
+- La vista privada del jugador debe permitir descargar en un único PDF todos sus cartones asignados, ordenados por número y con un máximo de cuatro cartones por hoja.
+- Si todavía no existe ningún sorteo, la vista privada debe mostrar en la parte superior “Aún no hay sorteo” y presentar completos los cartones asignados, con sus encabezados B-I-N-G-O, 24 números y centro libre; la marcación manual permanece asociada a un sorteo.
 - Los errores HTTP deben usar códigos apropiados, mensajes en español y un identificador de incidente; los errores internos no deben exponer detalles sensibles.
 - Después de cinco intentos administrativos fallidos se bloquean nuevos intentos durante 15 minutos; la respuesta debe indicar el tiempo de reintento.
 - Las operaciones de edición de jugador y cartones deben ser atómicas, y los formularios deben impedir envíos duplicados mientras una operación está en curso.
