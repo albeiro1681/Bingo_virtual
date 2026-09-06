@@ -5,7 +5,9 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "preDeployCommand": "npm run prisma:migrate:deploy --workspace api",
+    "preDeployCommand": [
+      "npm run prisma:migrate:deploy --workspace api"
+    ],
     "startCommand": "npm start",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 120,

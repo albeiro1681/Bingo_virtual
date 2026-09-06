@@ -61,8 +61,10 @@ npm start
 
 ## Despliegue en Railway con Neon
 
-1. Cree el proyecto PostgreSQL en Neon y copie su cadena de conexión con SSL.
-2. Configure en Railway `DATABASE_URL`, `APP_ENCRYPTION_KEY` y
+1. Cree el proyecto PostgreSQL en Neon y copie las cadenas de conexión pooled y
+   directa con SSL. Use la directa para migraciones si Neon ofrece ambas.
+2. Configure en Railway `DATABASE_URL`, `DATABASE_DIRECT_URL`,
+   `APP_ENCRYPTION_KEY` y
    `PUBLIC_APP_URL`. Esta última debe ser la URL HTTPS definitiva del servicio,
    sin una ruta al final; será la base de todos los enlaces de acceso enviados a
    jugadores.
@@ -77,14 +79,55 @@ npm start
 Variables obligatorias en producción:
 
 ```text
-DATABASE_URL=postgresql://...neon.tech/...?...sslmode=require&channel_binding=require
+DATABASE_URL=postgresql://...-pooler.neon.tech/...?...sslmode=require&channel_binding=require
+DATABASE_DIRECT_URL=postgresql://...neon.tech/...?...sslmode=require&channel_binding=require
 APP_ENCRYPTION_KEY=<secreto estable de al menos 32 caracteres>
 PUBLIC_APP_URL=https://<dominio-definitivo>
 ```
 
-Railway ejecuta `npm run prisma:migrate:deploy --workspace api` antes de activar
-la nueva versión y luego inicia la API con `npm start`. El endpoint de salud es
-`/api/health`.
+`DATABASE_DIRECT_URL` es opcional: si no se configura, Prisma Migrate reutiliza
+`DATABASE_URL`. Railway ejecuta `npm run prisma:migrate:deploy --workspace api`
+antes de activar la nueva versión y luego inicia la API con `npm start`. El
+endpoint `/api/health` solo responde correctamente cuando la API puede consultar
+PostgreSQL.
+
+### Inicialización única de producción
+
+Después de que el primer despliegue esté saludable, agregue temporalmente estas
+variables al servicio de Railway:
+
+```text
+ADMIN_NAME=<nombre visible>
+ADMIN_USERNAME=<usuario administrativo>
+ADMIN_PASSWORD=<contraseña inicial de al menos 10 caracteres>
+```
+
+Ejecute una sola vez, desde una shell o tarea del servicio que tenga las mismas
+variables de producción:
+
+```bash
+npm run admin:create --workspace api
+npm run cards:initialize --workspace api
+```
+
+El primer comando falla de forma segura si ya existe un administrador y el
+segundo es idempotente: conserva el catálogo existente. Al terminar, elimine
+inmediatamente `ADMIN_PASSWORD` de las variables de Railway; `ADMIN_NAME` y
+`ADMIN_USERNAME` también pueden retirarse porque la aplicación no los necesita
+para arrancar.
+
+### Comprobación posterior al despliegue
+
+- Confirme que `GET /api/health` devuelve `status: ok` y
+  `database: connected`.
+- Inicie sesión como administrador y confirme que existen exactamente 130
+  cartones maestros.
+- Abra el Panel de sorteo en una pestaña nueva y compruebe la conexión en tiempo
+  real, sin iniciar ni modificar un sorteo real.
+- Compruebe la vista del jugador con una cuenta de prueba autorizada antes de
+  enviar enlaces reales por WhatsApp.
+- Configure `WHATSAPP_*` y realice envíos solamente cuando la cuenta oficial de
+  Meta y los destinatarios de prueba estén autorizados.
 
 ## Validaciones
 

@@ -4,6 +4,7 @@ import { defineConfig } from 'prisma/config';
 config({ path: '../../.env' });
 
 function databaseUrl(): string {
+  if (process.env.DATABASE_DIRECT_URL) return process.env.DATABASE_DIRECT_URL;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
 
   const url = new URL('postgresql://localhost:5432');
