@@ -152,6 +152,8 @@ export class WhatsAppService {
   async sendPlayerAccess(input: {
     user: { id: string; name: string; phone: string };
     accessToken: string;
+    recipient?: string;
+    idempotencyKey?: string;
   }) {
     const settings = await this.settings();
     const link = this.playerAccessLink(
@@ -160,10 +162,11 @@ export class WhatsAppService {
     );
     const delivery = await this.send({
       kind: 'PLAYER_ACCESS',
-      recipient: input.user.phone,
+      recipient: input.recipient ?? input.user.phone,
       templateName: settings.playerAccessTemplate,
       parameters: [input.user.name, link],
-      idempotencyKey: `player-access:${input.user.id}:${Date.now()}`,
+      idempotencyKey:
+        input.idempotencyKey ?? `player-access:${input.user.id}:${Date.now()}`,
       userId: input.user.id,
     });
     return {
@@ -176,14 +179,18 @@ export class WhatsAppService {
   async notifyAssignment(input: {
     user: { id: string; name: string; phone: string };
     cardNumbers: number[];
+    recipient?: string;
+    idempotencyKey?: string;
   }) {
     const settings = await this.settings();
     return this.send({
       kind: 'CARD_ASSIGNMENT',
-      recipient: input.user.phone,
+      recipient: input.recipient ?? input.user.phone,
       templateName: settings.cardAssignmentTemplate,
       parameters: [input.user.name, input.cardNumbers.join(', ')],
-      idempotencyKey: `assignment:${input.user.id}:${input.cardNumbers.join('-')}`,
+      idempotencyKey:
+        input.idempotencyKey ??
+        `assignment:${input.user.id}:${input.cardNumbers.join('-')}`,
       userId: input.user.id,
     });
   }

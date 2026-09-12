@@ -60,6 +60,9 @@ export class CardsController {
     @Param('userId') userId: string,
     @Body() dto: ResendPlayerCardsDto,
   ) {
-    return this.cards.resendPlayerCards(userId, dto.cardNumbers);
+    return this.cards.resendPlayerCards(userId, dto.cardNumbers, {
+      phone: dto.phone,
+      requestId: dto.requestId,
+    });
   }
 }

@@ -16,6 +16,7 @@ import { UsersService } from './users.service';
 import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ImportPlayersDto } from './dto/import-players.dto';
 import { BulkSendLinksDto } from './dto/bulk-send-links.dto';
+import { SendPlayerAccessLinkDto } from './dto/send-player-access-link.dto';
 import { parseUsersCsvFile, type UploadedCsvFile } from './users-csv';
 
 @Controller('api/admin/users')
@@ -56,7 +57,11 @@ export class UsersController {
   @Post(':id/access-link/regenerate') regenerate(@Param('id') id: string) {
     return this.users.regenerateAccessLink(id);
   }
-  @Post(':id/access-link/send') sendLink(@Param('id') id: string) {
-    return this.users.sendAccessLink(id);
+  @Post(':id/access-link/send')
+  sendLink(@Param('id') id: string, @Body() dto: SendPlayerAccessLinkDto) {
+    return this.users.sendAccessLink(id, {
+      phone: dto.phone,
+      requestId: dto.requestId,
+    });
   }
 }

@@ -219,4 +219,43 @@ describe('CardsService', () => {
       ),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('resends to a one-time recipient and gives each request its own delivery key', async () => {
+    const user = {
+      id: 'player-1',
+      name: 'Player',
+      phone: '+573001234567',
+      cards: [{ number: 8 }],
+    };
+    const prisma = {
+      user: { findFirst: jest.fn().mockResolvedValue(user) },
+    } as unknown as PrismaService;
+    const notifyAssignment = jest.fn().mockResolvedValue({ status: 'SENT' });
+    const whatsapp = { notifyAssignment } as unknown as WhatsAppService;
+    const service = new CardsService(prisma, whatsapp, gateway);
+
+    await service.resendPlayerCards('player-1', [8], {
+      phone: '+573009876543',
+      requestId: '1275b046-8269-4c35-8c1e-ecc05b7f4bd7',
+    });
+    await service.resendPlayerCards('player-1', [8], {
+      phone: '+573009876543',
+      requestId: 'e1f03c73-0270-425d-9928-a97faea9db0a',
+    });
+
+    expect(notifyAssignment).toHaveBeenNthCalledWith(1, {
+      user: { id: user.id, name: user.name, phone: user.phone },
+      cardNumbers: [8],
+      recipient: '+573009876543',
+      idempotencyKey:
+        'assignment-resend:player-1:1275b046-8269-4c35-8c1e-ecc05b7f4bd7:+573009876543',
+    });
+    expect(notifyAssignment).toHaveBeenNthCalledWith(2, {
+      user: { id: user.id, name: user.name, phone: user.phone },
+      cardNumbers: [8],
+      recipient: '+573009876543',
+      idempotencyKey:
+        'assignment-resend:player-1:e1f03c73-0270-425d-9928-a97faea9db0a:+573009876543',
+    });
+  });
 });

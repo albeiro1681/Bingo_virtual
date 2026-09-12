@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { UserFormDrawer, UserManagementDrawer } from "./UserDrawers";
+import {
+  UserFormDrawer,
+  UserManagementDrawer,
+  WhatsAppSendDialog,
+  type WhatsAppSendTarget,
+} from "./UserDrawers";
 import { UsersTable } from "./UsersTable";
 import type {
   AdminRequest,
@@ -43,8 +48,13 @@ export function UsersPage({ request }: { request: AdminRequest }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkSendResult | null>(null);
+  const [whatsappSendTarget, setWhatsappSendTarget] =
+    useState<WhatsAppSendTarget | null>(null);
+  const [whatsappSending, setWhatsappSending] = useState(false);
+  const [whatsappSendError, setWhatsappSendError] = useState("");
   const formReturnFocus = useRef<HTMLElement | null>(null);
   const managementReturnFocus = useRef<HTMLElement | null>(null);
+  const whatsappSendReturnFocus = useRef<HTMLElement | null>(null);
   const requestLock = useRef(false);
 
   const loadPlayers = useCallback(async () => {
@@ -137,7 +147,9 @@ export function UsersPage({ request }: { request: AdminRequest }) {
   const toggleVisible = () =>
     setSelectedIds((current) => {
       const next = new Set(current);
-      const allVisibleSelected = visiblePlayers.every((player) => next.has(player.id));
+      const allVisibleSelected = visiblePlayers.every((player) =>
+        next.has(player.id),
+      );
       for (const player of visiblePlayers)
         if (allVisibleSelected) next.delete(player.id);
         else next.add(player.id);
@@ -149,7 +161,12 @@ export function UsersPage({ request }: { request: AdminRequest }) {
 
   const sendBulkLinks = async () => {
     if (!selectedIds.size || bulkSending) return;
-    if (!window.confirm(`Se enviará el enlace de acceso a ${selectedIds.size} jugador${selectedIds.size === 1 ? "" : "es"}. ¿Deseas continuar?`)) return;
+    if (
+      !window.confirm(
+        `Se enviará el enlace de acceso a ${selectedIds.size} jugador${selectedIds.size === 1 ? "" : "es"}. ¿Deseas continuar?`,
+      )
+    )
+      return;
     setBulkSending(true);
     setBulkResult(null);
     try {
@@ -162,7 +179,10 @@ export function UsersPage({ request }: { request: AdminRequest }) {
     } catch (error) {
       setNotice({
         tone: "error",
-        message: error instanceof Error ? error.message : "No fue posible completar el envío masivo.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No fue posible completar el envío masivo.",
       });
     } finally {
       setBulkSending(false);
@@ -202,6 +222,28 @@ export function UsersPage({ request }: { request: AdminRequest }) {
     managementReturnFocus.current = trigger;
     setManagementError("");
     setSelectedPlayerId(player.id);
+  };
+
+  const openAccessLinkSend = (player: Player, trigger: HTMLElement) => {
+    whatsappSendReturnFocus.current = trigger;
+    setWhatsappSendError("");
+    setWhatsappSendTarget({
+      kind: "ACCESS_LINK",
+      player,
+      requestId: window.crypto.randomUUID(),
+    });
+  };
+
+  const openCardSend = (cardNumber: number, trigger: HTMLElement) => {
+    if (!selectedPlayer) return;
+    whatsappSendReturnFocus.current = trigger;
+    setWhatsappSendError("");
+    setWhatsappSendTarget({
+      kind: "CARD_ASSIGNMENT",
+      player: selectedPlayer,
+      cardNumber,
+      requestId: window.crypto.randomUUID(),
+    });
   };
 
   const saveForm = () =>
@@ -308,24 +350,60 @@ export function UsersPage({ request }: { request: AdminRequest }) {
       }
     });
 
-  const sendAccessLink = (player: Player) =>
-    runOnce(async () => {
-      try {
-        await request(`/api/admin/users/${player.id}/access-link/send`, {
-          method: "POST",
-        });
+  const sendWhatsApp = async (phone?: string) => {
+    if (!whatsappSendTarget || whatsappSending) return;
+    setWhatsappSending(true);
+    setWhatsappSendError("");
+    try {
+      const commonBody = {
+        requestId: whatsappSendTarget.requestId,
+        ...(phone ? { phone } : {}),
+      };
+      if (whatsappSendTarget.kind === "ACCESS_LINK") {
+        const result = (await request(
+          `/api/admin/users/${whatsappSendTarget.player.id}/access-link/send`,
+          {
+            method: "POST",
+            body: JSON.stringify(commonBody),
+          },
+        )) as { status: string; error?: string | null };
+        if (result.status !== "SENT")
+          throw new Error(
+            result.error ?? "WhatsApp no confirmó el envío del enlace.",
+          );
         setNotice({ tone: "success", message: "Enlace enviado por WhatsApp." });
         await loadPlayers();
-      } catch (error) {
+      } else {
+        const result = (await request(
+          `/api/admin/cards/player/${whatsappSendTarget.player.id}/resend`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              ...commonBody,
+              cardNumbers: [whatsappSendTarget.cardNumber],
+            }),
+          },
+        )) as { status: string };
+        if (result.status !== "SENT")
+          throw new Error(
+            "WhatsApp no está configurado o el envío quedó pendiente.",
+          );
         setNotice({
-          tone: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "No fue posible enviar el enlace.",
+          tone: "success",
+          message: `Cartón #${whatsappSendTarget.cardNumber} reenviado por WhatsApp.`,
         });
       }
-    });
+      setWhatsappSendTarget(null);
+    } catch (error) {
+      setWhatsappSendError(
+        error instanceof Error
+          ? error.message
+          : "No fue posible completar el envío.",
+      );
+    } finally {
+      setWhatsappSending(false);
+    }
+  };
 
   const toggleActive = (player: Player) =>
     runOnce(async () => {
@@ -356,34 +434,6 @@ export function UsersPage({ request }: { request: AdminRequest }) {
       }
     });
 
-  const resendCard = async (cardNumber: number) => {
-    if (!selectedPlayer) return;
-    setManagementError("");
-    try {
-      const result = (await request(
-        `/api/admin/cards/player/${selectedPlayer.id}/resend`,
-        {
-          method: "POST",
-          body: JSON.stringify({ cardNumbers: [cardNumber] }),
-        },
-      )) as { status: string };
-      if (result.status !== "SENT")
-        throw new Error(
-          "WhatsApp no está configurado o el envío quedó pendiente.",
-        );
-      setNotice({
-        tone: "success",
-        message: `Cartón #${cardNumber} reenviado por WhatsApp.`,
-      });
-    } catch (error) {
-      setManagementError(
-        error instanceof Error
-          ? error.message
-          : "No fue posible reenviar el cartón.",
-      );
-    }
-  };
-
   const initializeCatalog = () =>
     runOnce(async () => {
       setManagementError("");
@@ -412,8 +462,12 @@ export function UsersPage({ request }: { request: AdminRequest }) {
           Crea jugadores, administra sus datos y asigna cartones permanentes.
         </p>
         <div className="users-header-actions">
-          <button type="button" onClick={downloadUsersTemplate}>Descargar plantilla</button>
-          <button type="button" onClick={() => setImportOpen(true)}>Importar usuarios</button>
+          <button type="button" onClick={downloadUsersTemplate}>
+            Descargar plantilla
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)}>
+            Importar usuarios
+          </button>
           <button
             type="button"
             className="primary-action"
@@ -507,16 +561,29 @@ export function UsersPage({ request }: { request: AdminRequest }) {
         </div>
 
         {selectedIds.size > 0 && (
-          <div className="bulk-actions" role="region" aria-label="Acciones masivas">
-            <strong>{selectedIds.size} seleccionado{selectedIds.size === 1 ? "" : "s"}</strong>
+          <div
+            className="bulk-actions"
+            role="region"
+            aria-label="Acciones masivas"
+          >
+            <strong>
+              {selectedIds.size} seleccionado{selectedIds.size === 1 ? "" : "s"}
+            </strong>
             {selectedIds.size < filteredPlayers.length && (
               <button type="button" onClick={selectFiltered}>
                 Seleccionar los {filteredPlayers.length} resultados filtrados
               </button>
             )}
             <span />
-            <button type="button" onClick={() => setSelectedIds(new Set())}>Limpiar selección</button>
-            <button type="button" className="primary-action" disabled={bulkSending} onClick={() => void sendBulkLinks()}>
+            <button type="button" onClick={() => setSelectedIds(new Set())}>
+              Limpiar selección
+            </button>
+            <button
+              type="button"
+              className="primary-action"
+              disabled={bulkSending}
+              onClick={() => void sendBulkLinks()}
+            >
               {bulkSending ? "Enviando…" : "Enviar enlaces por WhatsApp"}
             </button>
           </div>
@@ -524,10 +591,30 @@ export function UsersPage({ request }: { request: AdminRequest }) {
 
         {bulkResult && (
           <div className="bulk-result" role="status">
-            <div><strong>Resultado del envío</strong><button type="button" aria-label="Cerrar resultado" onClick={() => setBulkResult(null)}>×</button></div>
-            <p>{bulkResult.total} seleccionados · {bulkResult.sent} exitosos · {bulkResult.failed} fallidos · {bulkResult.skipped} omitidos</p>
+            <div>
+              <strong>Resultado del envío</strong>
+              <button
+                type="button"
+                aria-label="Cerrar resultado"
+                onClick={() => setBulkResult(null)}
+              >
+                ×
+              </button>
+            </div>
+            <p>
+              {bulkResult.total} seleccionados · {bulkResult.sent} exitosos ·{" "}
+              {bulkResult.failed} fallidos · {bulkResult.skipped} omitidos
+            </p>
             {bulkResult.results.some((item) => item.status !== "SENT") && (
-              <ul>{bulkResult.results.filter((item) => item.status !== "SENT").map((item) => <li key={item.userId}><strong>{item.name ?? item.userId}:</strong> {item.reason}</li>)}</ul>
+              <ul>
+                {bulkResult.results
+                  .filter((item) => item.status !== "SENT")
+                  .map((item) => (
+                    <li key={item.userId}>
+                      <strong>{item.name ?? item.userId}:</strong> {item.reason}
+                    </li>
+                  ))}
+              </ul>
             )}
           </div>
         )}
@@ -550,7 +637,7 @@ export function UsersPage({ request }: { request: AdminRequest }) {
             onManage={openManagement}
             onEdit={openEdit}
             onAccessLink={(player) => void getAccessLink(player)}
-            onSendAccessLink={(player) => void sendAccessLink(player)}
+            onSendAccessLink={openAccessLinkSend}
             onToggleActive={(player) => void toggleActive(player)}
             selectedIds={selectedIds}
             onToggleSelected={toggleSelected}
@@ -634,9 +721,23 @@ export function UsersPage({ request }: { request: AdminRequest }) {
         onRetryCatalog={() => void loadCatalog()}
         onInitializeCatalog={() => void initializeCatalog()}
         onSave={saveAssignment}
-        onResend={resendCard}
+        onResend={openCardSend}
         onOpenEdit={openEdit}
       />
+      {whatsappSendTarget && (
+        <WhatsAppSendDialog
+          target={whatsappSendTarget}
+          sending={whatsappSending}
+          error={whatsappSendError}
+          returnFocus={whatsappSendReturnFocus.current}
+          onClose={() => {
+            if (whatsappSending) return;
+            setWhatsappSendTarget(null);
+            setWhatsappSendError("");
+          }}
+          onSend={sendWhatsApp}
+        />
+      )}
     </section>
   );
 }

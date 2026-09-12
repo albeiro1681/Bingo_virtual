@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { DrawsGateway } from '../draws/draws.gateway';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -289,7 +290,11 @@ export class CardsService {
     };
   }
 
-  async resendPlayerCards(userId: string, cardNumbers: number[]) {
+  async resendPlayerCards(
+    userId: string,
+    cardNumbers: number[],
+    options?: { phone?: string; requestId?: string },
+  ) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, role: 'PLAYER', active: true },
       select: {
@@ -308,9 +313,14 @@ export class CardsService {
       throw new ConflictException(
         'One or more cards do not belong to this player',
       );
+    const recipient = options?.phone ?? user.phone;
     const delivery = await this.whatsapp.notifyAssignment({
       user: { id: user.id, name: user.name, phone: user.phone },
       cardNumbers: [...cardNumbers].sort((a, b) => a - b),
+      recipient,
+      idempotencyKey: options?.requestId
+        ? `assignment-resend:${user.id}:${options.requestId}:${recipient}`
+        : `assignment-resend:${user.id}:${randomUUID()}:${recipient}`,
     });
     return { status: delivery.status, cardNumbers };
   }

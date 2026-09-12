@@ -4,9 +4,12 @@ import { UserForm } from "./UserForm";
 import type { CardTemplate, Player, PlayerDraft } from "./types";
 import {
   cardCode,
+  countryCodes,
   e164Phone,
+  emptyPlayerDraft,
   formatDate,
   formatPhone,
+  validatePhoneDraft,
   validatePlayerDraft,
 } from "./user-utils";
 
@@ -25,7 +28,14 @@ function useDialogFocus<T extends HTMLElement>(
     const panel = panelRef.current;
     panel?.querySelector<HTMLElement>("button, input, select")?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCloseRef.current();
+      const dialogs = document.querySelectorAll<HTMLElement>(
+        '[role="dialog"][aria-modal="true"]',
+      );
+      if (!panel || dialogs.item(dialogs.length - 1) !== panel) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+      }
       if (event.key !== "Tab" || !panel) return;
       const controls = [
         ...panel.querySelectorAll<HTMLElement>(
@@ -44,14 +54,246 @@ function useDialogFocus<T extends HTMLElement>(
       }
     };
     document.addEventListener("keydown", onKeyDown);
-    document.body.classList.add("drawer-open");
+    const bodyWasLocked = document.body.classList.contains("drawer-open");
+    if (!bodyWasLocked) document.body.classList.add("drawer-open");
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.classList.remove("drawer-open");
+      if (!bodyWasLocked) document.body.classList.remove("drawer-open");
       previous?.focus();
     };
   }, [open, returnFocus]);
   return panelRef;
+}
+
+export type WhatsAppSendTarget =
+  | {
+      kind: "ACCESS_LINK";
+      player: Player;
+      requestId: string;
+    }
+  | {
+      kind: "CARD_ASSIGNMENT";
+      player: Player;
+      cardNumber: number;
+      requestId: string;
+    };
+
+type WhatsAppSendDialogProps = {
+  target: WhatsAppSendTarget | null;
+  sending: boolean;
+  error: string;
+  returnFocus?: HTMLElement | null;
+  onClose: () => void;
+  onSend: (phone?: string) => Promise<void>;
+};
+
+export function WhatsAppSendDialog(props: WhatsAppSendDialogProps) {
+  const [recipientMode, setRecipientMode] = useState<
+    "REGISTERED" | "ALTERNATE"
+  >("REGISTERED");
+  const [phoneDraft, setPhoneDraft] = useState<PlayerDraft>(emptyPlayerDraft());
+  const [phoneError, setPhoneError] = useState("");
+  const panelRef = useDialogFocus<HTMLFormElement>(
+    Boolean(props.target),
+    props.onClose,
+    props.returnFocus,
+  );
+
+  useEffect(() => {
+    if (!props.target) return;
+    setRecipientMode("REGISTERED");
+    setPhoneDraft(emptyPlayerDraft());
+    setPhoneError("");
+  }, [props.target]);
+
+  if (!props.target) return null;
+  const { player } = props.target;
+  const isAccessLink = props.target.kind === "ACCESS_LINK";
+  const contentDescription =
+    props.target.kind === "ACCESS_LINK"
+      ? "Enlace personal para acceder a todos sus cartones"
+      : `Cartón #${props.target.cardNumber}`;
+
+  const submit = async () => {
+    if (recipientMode === "REGISTERED") {
+      await props.onSend();
+      return;
+    }
+    const nextError = validatePhoneDraft(phoneDraft);
+    setPhoneError(nextError ?? "");
+    if (nextError) return;
+    await props.onSend(e164Phone(phoneDraft));
+  };
+
+  return (
+    <div
+      className="drawer-backdrop whatsapp-send-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !props.sending)
+          props.onClose();
+      }}
+    >
+      <form
+        className="user-drawer form-drawer whatsapp-send-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="whatsapp-send-title"
+        ref={panelRef}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <header className="drawer-header">
+          <div>
+            <span className="drawer-eyebrow">WhatsApp</span>
+            <h2 id="whatsapp-send-title">
+              {isAccessLink ? "Enviar enlace de acceso" : "Reenviar cartón"}
+            </h2>
+            <p>{player.name}</p>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Cerrar confirmación de envío"
+            disabled={props.sending}
+            onClick={props.onClose}
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="drawer-content whatsapp-send-content">
+          {props.error && (
+            <div className="drawer-alert is-error" role="alert">
+              {props.error}
+            </div>
+          )}
+
+          <div className="whatsapp-send-summary">
+            <span>Contenido</span>
+            <strong>{contentDescription}</strong>
+          </div>
+
+          {isAccessLink && (
+            <div className="whatsapp-security-warning">
+              <strong>Enlace privado</strong>
+              <p>
+                Quien reciba este enlace podrá ingresar a la vista del jugador y
+                consultar todos sus cartones asignados.
+              </p>
+            </div>
+          )}
+
+          <fieldset className="whatsapp-recipient-options">
+            <legend>Destinatario</legend>
+            <label>
+              <input
+                type="radio"
+                name="recipient-mode"
+                value="REGISTERED"
+                checked={recipientMode === "REGISTERED"}
+                onChange={() => {
+                  setRecipientMode("REGISTERED");
+                  setPhoneError("");
+                }}
+              />
+              <span>
+                <strong>Número registrado</strong>
+                <small>{formatPhone(player.phone)}</small>
+              </span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="recipient-mode"
+                value="ALTERNATE"
+                checked={recipientMode === "ALTERNATE"}
+                onChange={() => setRecipientMode("ALTERNATE")}
+              />
+              <span>
+                <strong>Otro número para este envío</strong>
+                <small>No modificará los datos del jugador.</small>
+              </span>
+            </label>
+          </fieldset>
+
+          {recipientMode === "ALTERNATE" && (
+            <div className="phone-fields whatsapp-alternate-phone">
+              <label>
+                <span>Indicativo</span>
+                <select
+                  aria-label="Indicativo del destinatario"
+                  value={phoneDraft.countryCode}
+                  onChange={(event) => {
+                    setPhoneError("");
+                    setPhoneDraft({
+                      ...phoneDraft,
+                      countryCode: event.target.value,
+                    });
+                  }}
+                >
+                  {countryCodes.map((option) => (
+                    <option value={option.value} key={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Número de WhatsApp</span>
+                <input
+                  inputMode="numeric"
+                  autoComplete="tel-national"
+                  placeholder="313 462 1322"
+                  value={phoneDraft.phoneNumber}
+                  aria-invalid={Boolean(phoneError)}
+                  aria-describedby={
+                    phoneError ? "whatsapp-recipient-error" : undefined
+                  }
+                  onChange={(event) => {
+                    setPhoneError("");
+                    setPhoneDraft({
+                      ...phoneDraft,
+                      phoneNumber: event.target.value.replace(/\D/g, ""),
+                    });
+                  }}
+                />
+                {phoneError && (
+                  <small className="field-error" id="whatsapp-recipient-error">
+                    {phoneError}
+                  </small>
+                )}
+              </label>
+            </div>
+          )}
+        </div>
+
+        <footer className="drawer-footer">
+          <button
+            type="button"
+            className="secondary-action"
+            disabled={props.sending}
+            onClick={props.onClose}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            className="primary-action"
+            disabled={props.sending}
+          >
+            {props.sending
+              ? "Enviando…"
+              : isAccessLink
+                ? "Enviar enlace"
+                : "Reenviar cartón"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
 }
 
 type FormDrawerProps = {
@@ -177,7 +419,7 @@ type ManagementProps = {
     cardNumbers: number[];
     sendWhatsApp: boolean;
   }) => Promise<void>;
-  onResend: (cardNumber: number) => Promise<void>;
+  onResend: (cardNumber: number, trigger: HTMLElement) => void;
   onOpenEdit: (player: Player, trigger: HTMLElement) => void;
 };
 
@@ -191,7 +433,6 @@ export function UserManagementDrawer(props: ManagementProps) {
   const [selectedNumbers, setSelectedNumbers] =
     useState<number[]>(originalNumbers);
   const [sendWhatsApp, setSendWhatsApp] = useState(true);
-  const [resending, setResending] = useState<number | null>(null);
 
   useEffect(() => {
     setSelectedNumbers(originalNumbers);
@@ -335,17 +576,11 @@ export function UserManagementDrawer(props: ManagementProps) {
                     <button
                       type="button"
                       className="text-button"
-                      disabled={resending === card.number}
-                      onClick={() => {
-                        setResending(card.number);
-                        void props
-                          .onResend(card.number)
-                          .finally(() => setResending(null));
-                      }}
+                      onClick={(event) =>
+                        props.onResend(card.number, event.currentTarget)
+                      }
                     >
-                      {resending === card.number
-                        ? "Enviando…"
-                        : "Reenviar por WhatsApp"}
+                      Reenviar por WhatsApp
                     </button>
                   </article>
                 ))}

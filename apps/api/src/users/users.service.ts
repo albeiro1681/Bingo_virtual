@@ -154,16 +154,24 @@ export class UsersService {
     return { accessLink: await this.whatsapp.accessLink(accessToken) };
   }
 
-  async sendAccessLink(id: string) {
+  async sendAccessLink(
+    id: string,
+    options?: { phone?: string; requestId?: string },
+  ) {
     let user = await this.playerWithToken(id);
     if (!user) {
       await this.regenerateAccessLink(id);
       user = await this.playerWithToken(id);
     }
     if (!user?.phone) throw new NotFoundException('Player phone not found');
+    const recipient = options?.phone ?? user.phone;
     const delivery = await this.whatsapp.sendPlayerAccess({
       user: { id: user.id, name: user.name, phone: user.phone },
       accessToken: user.accessToken,
+      recipient,
+      idempotencyKey: options?.requestId
+        ? `player-access-manual:${user.id}:${options.requestId}:${recipient}`
+        : undefined,
     });
     return delivery;
   }

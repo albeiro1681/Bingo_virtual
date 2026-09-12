@@ -37,13 +37,18 @@ export function e164Phone(draft: PlayerDraft): string {
   return `${draft.countryCode}${draft.phoneNumber.replace(/\D/g, "")}`;
 }
 
+export function validatePhoneDraft(draft: PlayerDraft): string | undefined {
+  if (!/^\+[1-9]\d{7,14}$/.test(e164Phone(draft)))
+    return "Escribe un número válido de 8 a 15 dígitos.";
+  return undefined;
+}
+
 export function validatePlayerDraft(draft: PlayerDraft) {
   const errors: { name?: string; phoneNumber?: string } = {};
   if (draft.name.trim().length < 2)
     errors.name = "Escribe el nombre completo del jugador.";
-  const phone = e164Phone(draft);
-  if (!/^\+[1-9]\d{7,14}$/.test(phone))
-    errors.phoneNumber = "Escribe un número válido de 8 a 15 dígitos.";
+  errors.phoneNumber = validatePhoneDraft(draft);
+  if (!errors.phoneNumber) delete errors.phoneNumber;
   return errors;
 }
 

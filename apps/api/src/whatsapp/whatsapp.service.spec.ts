@@ -4,6 +4,8 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from './whatsapp.service';
 
 describe('WhatsAppService', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   it('uses PUBLIC_APP_URL for access links even when a previous URL is stored', async () => {
     const prisma = {
       whatsAppSettings: {
@@ -55,5 +57,40 @@ describe('WhatsAppService', () => {
     await expect(
       new WhatsAppService(prisma, config).retryDelivery(delivery.id),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('does not deliver twice when the same manual request is repeated', async () => {
+    const delivery = {
+      id: 'delivery-1',
+      status: 'SENT',
+      idempotencyKey: 'assignment-resend:player-1:request-1:+573001234567',
+    };
+    const upsert = jest.fn().mockResolvedValue(delivery);
+    const prisma = {
+      whatsAppDelivery: {
+        upsert,
+      },
+      whatsAppSettings: { findUnique: jest.fn().mockResolvedValue(null) },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => fallback),
+    } as unknown as ConfigService;
+    const fetchSpy = jest.spyOn(global, 'fetch');
+    const service = new WhatsAppService(prisma, config);
+    const input = {
+      user: {
+        id: 'player-1',
+        name: 'Jugador',
+        phone: '+573001234567',
+      },
+      cardNumbers: [8],
+      idempotencyKey: delivery.idempotencyKey,
+    };
+
+    await service.notifyAssignment(input);
+    await service.notifyAssignment(input);
+
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

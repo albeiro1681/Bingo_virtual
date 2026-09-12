@@ -2,6 +2,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import type { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { UsersService } from './users.service';
 import type { ConfigService } from '@nestjs/config';
+import { encryptSecret } from '../auth/secret-box';
 
 describe('UsersService', () => {
   it('returns and sends the same player access link when creating a player', async () => {
@@ -176,6 +177,42 @@ describe('UsersService', () => {
     expect(
       result.results.find((item) => item.userId === 'failed')?.reason,
     ).toBe('Meta no disponible');
+  });
+
+  it('sends an access link to a one-time recipient without changing the player', async () => {
+    const encryptionKey = 'a-secure-test-encryption-key-with-32-chars';
+    const user = {
+      id: 'player-1',
+      name: 'Jugador',
+      phone: '+573001234567',
+      tokenEncrypted: encryptSecret('private-token', encryptionKey),
+    };
+    const prisma = {
+      user: { findFirst: jest.fn().mockResolvedValue(user) },
+    } as unknown as PrismaService;
+    const sendPlayerAccess = jest.fn().mockResolvedValue({
+      accessLink: 'https://bingo.example/player?token=private-token',
+      status: 'SENT',
+      error: null,
+    });
+    const whatsapp = { sendPlayerAccess } as unknown as WhatsAppService;
+    const config = {
+      get: jest.fn().mockReturnValue(encryptionKey),
+    } as unknown as ConfigService;
+    const service = new UsersService(prisma, whatsapp, config);
+
+    await service.sendAccessLink('player-1', {
+      phone: '+573009876543',
+      requestId: '8c24f723-1afd-4c5f-8705-d9ebd0600e21',
+    });
+
+    expect(sendPlayerAccess).toHaveBeenCalledWith({
+      user: { id: user.id, name: user.name, phone: user.phone },
+      accessToken: 'private-token',
+      recipient: '+573009876543',
+      idempotencyKey:
+        'player-access-manual:player-1:8c24f723-1afd-4c5f-8705-d9ebd0600e21:+573009876543',
+    });
   });
 
   it('imports valid rows independently so one transactional failure does not stop the rest', async () => {

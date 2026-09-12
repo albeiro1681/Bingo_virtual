@@ -9,7 +9,7 @@ type Props = {
   onManage: (player: Player, trigger: HTMLElement) => void;
   onEdit: (player: Player, trigger: HTMLElement) => void;
   onAccessLink: (player: Player) => void;
-  onSendAccessLink: (player: Player) => void;
+  onSendAccessLink: (player: Player, trigger: HTMLElement) => void;
   onToggleActive: (player: Player) => void;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
@@ -153,7 +153,9 @@ export function UsersTable({
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => onSendAccessLink(player)}
+                        onClick={(event) =>
+                          onSendAccessLink(player, event.currentTarget)
+                        }
                       >
                         Enviar enlace
                       </button>
