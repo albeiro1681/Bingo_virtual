@@ -32,6 +32,10 @@ type PlayerCard = {
     tieBreakCandidates: Array<{ id: string; card: TieBreakCard }>;
   } | null;
 };
+type PlayerSession = {
+  player: { id: string; name: string };
+  cards: PlayerCard[];
+};
 
 class HttpError extends Error {
   readonly status: number;
@@ -49,6 +53,13 @@ const gameStatusLabels: Record<string, string> = {
   FINISHED: "Finalizado",
   CANCELLED: "Cancelado",
 };
+const initialLoadRetryDelays = [750, 1500];
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) =>
+    window.setTimeout(resolve, milliseconds),
+  );
+}
 
 function gameStatusLabel(status: string): string {
   return gameStatusLabels[status] ?? "Estado desconocido";
@@ -65,6 +76,7 @@ function PlayerApp() {
     return sessionStorage.getItem("fecs-player-token") ?? "";
   });
   const [tokenDraft, setTokenDraft] = useState("");
+  const [loading, setLoading] = useState(Boolean(token));
   const [player, setPlayer] = useState<{ id: string; name: string } | null>(
     null,
   );
@@ -119,33 +131,52 @@ function PlayerApp() {
     [token],
   );
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    try {
-      const [nextPlayer, nextCards] = (await Promise.all([
-        request("/api/player/me"),
-        request("/api/player/cards"),
-      ])) as [{ id: string; name: string }, PlayerCard[]];
-      setPlayer(nextPlayer);
-      setCards(nextCards);
-      setMessage("");
-    } catch (error) {
-      const nextMessage =
-        error instanceof Error
-          ? error.message
-          : "No fue posible cargar los cartones";
-      if (error instanceof HttpError && error.status === 401) {
-        sessionStorage.removeItem("fecs-player-token");
-        setLoginMessage(nextMessage);
-        setToken("");
-        return;
+  const refresh = useCallback(
+    async (options?: { initial?: boolean }) => {
+      if (!token) return;
+      const initial = options?.initial === true;
+      if (initial) setLoading(true);
+      try {
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            const nextSession = (await request(
+              "/api/player/session",
+            )) as PlayerSession;
+            setPlayer(nextSession.player);
+            setCards(nextSession.cards);
+            setMessage("");
+            return;
+          } catch (error) {
+            const nextMessage =
+              error instanceof Error
+                ? error.message
+                : "No fue posible cargar los cartones";
+            if (error instanceof HttpError && error.status === 401) {
+              sessionStorage.removeItem("fecs-player-token");
+              setPlayer(null);
+              setCards([]);
+              setLoginMessage(nextMessage);
+              setToken("");
+              return;
+            }
+            const retryDelay = initialLoadRetryDelays[attempt];
+            if (initial && retryDelay !== undefined) {
+              await wait(retryDelay);
+              continue;
+            }
+            setMessage(nextMessage);
+            return;
+          }
+        }
+      } finally {
+        if (initial) setLoading(false);
       }
-      setMessage(nextMessage);
-    }
-  }, [request, token]);
+    },
+    [request, token],
+  );
 
   useEffect(() => {
-    void refresh();
+    void refresh({ initial: true });
   }, [refresh]);
   useEffect(() => {
     if (!token) return;
@@ -221,9 +252,8 @@ function PlayerApp() {
     setGeneratingPdf(true);
     setPdfMessage("");
     try {
-      const { createPlayerCardsPdf, playerCardsPdfFilename } = await import(
-        "./player-cards-pdf"
-      );
+      const { createPlayerCardsPdf, playerCardsPdfFilename } =
+        await import("./player-cards-pdf");
       const bytes = await createPlayerCardsPdf({
         playerName: player.name,
         cards,
@@ -293,15 +323,6 @@ function PlayerApp() {
           >
             {generatingPdf ? "Generando PDF…" : "Descargar cartones en PDF"}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              sessionStorage.removeItem("fecs-player-token");
-              setToken("");
-            }}
-          >
-            Salir
-          </button>
         </div>
       </header>
       {pdfMessage && (
@@ -314,6 +335,11 @@ function PlayerApp() {
         <p className="player-message" role="status">
           {connectionMessage}
         </p>
+      )}
+      {loading && !player && (
+        <div className="player-loading" role="status">
+          Cargando tus cartones…
+        </div>
       )}
       {hasNoGame && (
         <p className="player-message no-game-message" role="status">
@@ -351,7 +377,7 @@ function PlayerApp() {
           </span>
         </div>
       )}
-      {!cards.length && !message && (
+      {!loading && !cards.length && !message && (
         <section className="empty-state">
           <h2>Aún no tienes cartones asignados</h2>
           <p>Cuando FECSUPOL te asigne un cartón aparecerá aquí.</p>
@@ -369,9 +395,7 @@ function PlayerApp() {
                     <span>Asignación permanente</span>
                   </div>
                 </div>
-                <p className="objective">
-                  Cartón asignado por FECSUPOL
-                </p>
+                <p className="objective">Cartón asignado por FECSUPOL</p>
                 <div className="bingo-grid">
                   <div className="bingo-head">
                     {columns.map((column) => (
@@ -382,8 +406,7 @@ function PlayerApp() {
                     <div className="bingo-row" key={row}>
                       {Array.from({ length: 5 }, (_, column) =>
                         card.cells.find(
-                          (cell) =>
-                            cell.row === row && cell.column === column,
+                          (cell) => cell.row === row && cell.column === column,
                         ),
                       ).map((cell, column) => (
                         <span

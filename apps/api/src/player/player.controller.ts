@@ -13,11 +13,23 @@ export class PlayerController {
     return request.player;
   }
 
+  @Get('session')
+  async session(@Req() request: PlayerRequest) {
+    return {
+      player: request.player,
+      cards: await this.cardsForPlayer(request.player.id),
+    };
+  }
+
   @Get('cards')
-  async cards(@Req() request: PlayerRequest) {
+  cards(@Req() request: PlayerRequest) {
+    return this.cardsForPlayer(request.player.id);
+  }
+
+  private async cardsForPlayer(playerId: string) {
     const [cards, game] = await Promise.all([
       this.prisma.card.findMany({
-        where: { userId: request.player.id },
+        where: { userId: playerId },
         include: {
           cells: { orderBy: [{ column: 'asc' }, { row: 'asc' }] },
         },
@@ -29,7 +41,7 @@ export class PlayerController {
           winningCells: { orderBy: [{ row: 'asc' }, { column: 'asc' }] },
           drawnBalls: { orderBy: { drawOrder: 'asc' } },
           winners: {
-            where: { isFinal: true, card: { userId: request.player.id } },
+            where: { isFinal: true, card: { userId: playerId } },
           },
           finalWinner: {
             select: { id: true, number: true, userId: true },

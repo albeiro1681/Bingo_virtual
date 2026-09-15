@@ -3,10 +3,13 @@
   display: grid;
   place-content: center;
   padding: 1rem;
+  box-sizing: border-box;
+  background: #f5f8f7;
 }
 .player-login form {
   display: grid;
   gap: 1rem;
+  box-sizing: border-box;
   width: min(360px, calc(100vw - 2rem));
   padding: 1.5rem;
   border: 1px solid #d7e2dd;
@@ -30,9 +33,13 @@
   font-weight: 800;
 }
 .player-view {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100svh;
   max-width: 1400px;
   margin: auto;
   padding: 2rem;
+  background: #f5f8f7;
 }
 .player-view > header {
   display: flex;
@@ -68,6 +75,17 @@
   background: #e8efec;
   color: #6b7772;
   cursor: not-allowed;
+}
+.player-loading {
+  display: grid;
+  place-items: center;
+  min-height: 12rem;
+  margin: 1.5rem 0;
+  border: 1px solid #d7e2dd;
+  border-radius: 1rem;
+  background: #fff;
+  color: #52615b;
+  font-weight: 700;
 }
 .winner-banner {
   display: flex;
