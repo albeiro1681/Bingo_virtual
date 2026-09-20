@@ -181,24 +181,53 @@ function PlayerApp() {
   useEffect(() => {
     if (!token) return;
     const socket = io("/draws", { auth: { token } });
+    let warningTimer: number | undefined;
+    let connectedBefore = false;
+    const clearWarning = () => {
+      if (warningTimer !== undefined) window.clearTimeout(warningTimer);
+      warningTimer = undefined;
+      setConnectionMessage("");
+    };
+    const scheduleWarning = () => {
+      if (document.hidden || warningTimer !== undefined) return;
+      warningTimer = window.setTimeout(() => {
+        warningTimer = undefined;
+        if (!socket.connected && !document.hidden) {
+          setConnectionMessage(
+            "Se perdió la conexión en tiempo real. Intentando reconectar…",
+          );
+        }
+      }, 3000);
+    };
     const sync = () => void refresh();
     socket.on("ball:drawn", sync);
     socket.on("winner:detected", sync);
     socket.on("game:updated", sync);
     socket.on("cards:updated", sync);
     socket.on("tie-break:completed", sync);
-    socket.on("connect", () => setConnectionMessage(""));
-    socket.on("connect_error", () =>
-      setConnectionMessage(
-        "Se perdió la conexión en tiempo real. Intentando reconectar…",
-      ),
-    );
-    socket.on("disconnect", () =>
-      setConnectionMessage(
-        "Se perdió la conexión en tiempo real. Intentando reconectar…",
-      ),
-    );
+    socket.on("connect", () => {
+      clearWarning();
+      if (connectedBefore) sync();
+      connectedBefore = true;
+    });
+    socket.on("connect_error", scheduleWarning);
+    socket.on("disconnect", scheduleWarning);
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        clearWarning();
+      } else if (socket.connected) {
+        clearWarning();
+        sync();
+      } else {
+        scheduleWarning();
+        socket.connect();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (warningTimer !== undefined) window.clearTimeout(warningTimer);
+      socket.removeAllListeners();
       socket.disconnect();
     };
   }, [refresh, token]);
