@@ -38,6 +38,23 @@
 .whatsapp-view .panels {
   grid-template-columns: minmax(0, 720px);
 }
+.whatsapp-deliveries {
+  min-width: 0;
+}
+.whatsapp-deliveries p {
+  margin: 0;
+}
+.whatsapp-deliveries .table-wrap {
+  overflow-x: auto;
+}
+.whatsapp-deliveries table {
+  min-width: 640px;
+}
+.delivery-error {
+  display: block;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}
 .admin > header,
 .admin > header {
   display: flex;

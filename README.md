@@ -129,6 +129,23 @@ para arrancar.
 - Configure `WHATSAPP_*` y realice envíos solamente cuando la cuenta oficial de
   Meta y los destinatarios de prueba estén autorizados.
 
+### Confirmaciones de entrega de WhatsApp
+
+La respuesta HTTP de Meta solo confirma que aceptó el mensaje; no confirma que
+llegó al destinatario. La sección administrativa de WhatsApp muestra por separado
+«Aceptado por Meta», «Entregado», «Leído» y «Fallido».
+
+Para recibir cambios de estado, configure en Railway `WHATSAPP_APP_SECRET` con
+el secreto de la aplicación de Meta y `WHATSAPP_WEBHOOK_VERIFY_TOKEN` con un
+valor aleatorio diferente del token de acceso. En Meta configure la URL pública
+`https://<dominio-definitivo>/api/whatsapp/webhook`, el mismo token de
+verificación y la suscripción al campo `messages` de la cuenta de WhatsApp
+Business. El endpoint verifica la firma `X-Hub-Signature-256` antes de registrar
+los avisos. No pegue estos secretos ni enlaces personales en tickets o chats.
+
+Los envíos anteriores a la activación del webhook pueden permanecer como
+«Aceptado por Meta» porque no se dispone de sus confirmaciones históricas.
+
 ## Validaciones
 
 La vista privada del jugador muestra sus cartones completos desde la asignación,

@@ -312,16 +312,15 @@ export function UsersPage({ request }: { request: AdminRequest }) {
         await Promise.all([loadPlayers(), loadCatalog()]);
         setNotice({
           tone:
-            result.whatsappStatus === "SENT" ||
+            ["SENT", "DELIVERED", "READ"].includes(result.whatsappStatus) ||
             result.whatsappStatus === "SKIPPED"
               ? "success"
               : "warning",
-          message:
-            result.whatsappStatus === "SENT"
-              ? "Asignación guardada y enviada por WhatsApp."
-              : result.whatsappStatus === "SKIPPED"
-                ? "Asignación guardada correctamente."
-                : "Asignación guardada. El envío de WhatsApp quedó pendiente.",
+          message: ["SENT", "DELIVERED", "READ"].includes(result.whatsappStatus)
+            ? "Asignación guardada. Meta aceptó el aviso de WhatsApp; consulta su entrega en el panel de WhatsApp."
+            : result.whatsappStatus === "SKIPPED"
+              ? "Asignación guardada correctamente."
+              : "Asignación guardada. El envío de WhatsApp quedó pendiente.",
         });
       } catch (error) {
         setManagementError(
@@ -367,11 +366,14 @@ export function UsersPage({ request }: { request: AdminRequest }) {
             body: JSON.stringify(commonBody),
           },
         )) as { status: string; error?: string | null };
-        if (result.status !== "SENT")
+        if (!["SENT", "DELIVERED", "READ"].includes(result.status))
           throw new Error(
-            result.error ?? "WhatsApp no confirmó el envío del enlace.",
+            result.error ?? "Meta no aceptó el envío del enlace.",
           );
-        setNotice({ tone: "success", message: "Enlace enviado por WhatsApp." });
+        setNotice({
+          tone: "success",
+          message: "Meta aceptó el enlace. Consulta su entrega en WhatsApp.",
+        });
         await loadPlayers();
       } else {
         const result = (await request(
@@ -384,13 +386,13 @@ export function UsersPage({ request }: { request: AdminRequest }) {
             }),
           },
         )) as { status: string };
-        if (result.status !== "SENT")
+        if (!["SENT", "DELIVERED", "READ"].includes(result.status))
           throw new Error(
             "WhatsApp no está configurado o el envío quedó pendiente.",
           );
         setNotice({
           tone: "success",
-          message: `Cartón #${whatsappSendTarget.cardNumber} reenviado por WhatsApp.`,
+          message: `Meta aceptó el aviso del cartón #${whatsappSendTarget.cardNumber}. Consulta su entrega en WhatsApp.`,
         });
       }
       setWhatsappSendTarget(null);
@@ -602,8 +604,9 @@ export function UsersPage({ request }: { request: AdminRequest }) {
               </button>
             </div>
             <p>
-              {bulkResult.total} seleccionados · {bulkResult.sent} exitosos ·{" "}
-              {bulkResult.failed} fallidos · {bulkResult.skipped} omitidos
+              {bulkResult.total} seleccionados · {bulkResult.sent} aceptados por
+              Meta · {bulkResult.failed} fallidos · {bulkResult.skipped}{" "}
+              omitidos
             </p>
             {bulkResult.results.some((item) => item.status !== "SENT") && (
               <ul>

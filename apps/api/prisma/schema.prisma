@@ -41,6 +41,8 @@ enum WhatsAppDeliveryKind {
 enum WhatsAppDeliveryStatus {
   PENDING
   SENT
+  DELIVERED
+  READ
   FAILED
 }
 
@@ -270,6 +272,7 @@ model WhatsAppDelivery {
   payload           Json
   idempotencyKey    String                 @unique
   providerMessageId String?
+  providerStatusAt  DateTime?
   error             String?
   attempts          Int                    @default(0)
   userId            String?
@@ -285,4 +288,17 @@ model WhatsAppDelivery {
   @@index([userId])
   @@index([gameId])
   @@index([winnerId])
+  @@index([providerMessageId])
+}
+
+model WhatsAppStatusEvent {
+  id                String                 @id @default(cuid())
+  providerMessageId String
+  status            WhatsAppDeliveryStatus
+  occurredAt        DateTime
+  errorCode         String?
+  createdAt         DateTime               @default(now())
+
+  @@unique([providerMessageId, status, occurredAt])
+  @@index([providerMessageId])
 }

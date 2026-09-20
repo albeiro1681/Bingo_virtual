@@ -24,6 +24,9 @@ export class WhatsAppController {
   @Get('test') test() {
     return this.whatsapp.testConnection();
   }
+  @Get('deliveries') deliveries() {
+    return this.whatsapp.listDeliveries();
+  }
   @Post('deliveries/:id/retry') retry(@Param('id') id: string) {
     return this.whatsapp.retryDelivery(id);
   }

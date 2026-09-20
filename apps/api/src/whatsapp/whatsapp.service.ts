@@ -25,6 +25,29 @@ type TemplateMessage = {
   group?: boolean;
 };
 
+type ReceiptStatus = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+
+function receiptStatus(value: unknown): ReceiptStatus | null {
+  switch (value) {
+    case 'sent':
+      return 'SENT';
+    case 'delivered':
+      return 'DELIVERED';
+    case 'read':
+      return 'READ';
+    case 'failed':
+      return 'FAILED';
+    default:
+      return null;
+  }
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 @Injectable()
 export class WhatsAppService {
   constructor(
@@ -277,21 +300,24 @@ export class WhatsAppService {
     ) {
       throw new BadRequestException('El envío no tiene un contenido válido');
     }
-    await this.send({
-      kind: delivery.kind,
-      recipient: delivery.recipient,
-      templateName: delivery.templateName,
-      parameters: payload.parameters,
-      idempotencyKey: delivery.idempotencyKey,
-      userId: delivery.userId ?? undefined,
-      gameId: delivery.gameId ?? undefined,
-      winnerId: delivery.winnerId ?? undefined,
-      group: payload.group === true,
-    });
+    await this.send(
+      {
+        kind: delivery.kind,
+        recipient: delivery.recipient,
+        templateName: delivery.templateName,
+        parameters: payload.parameters,
+        idempotencyKey: delivery.idempotencyKey,
+        userId: delivery.userId ?? undefined,
+        gameId: delivery.gameId ?? undefined,
+        winnerId: delivery.winnerId ?? undefined,
+        group: payload.group === true,
+      },
+      true,
+    );
     const retried = await this.prisma.whatsAppDelivery.findUnique({
       where: { id },
     });
-    if (retried?.status !== 'SENT') {
+    if (!retried || !['SENT', 'DELIVERED', 'READ'].includes(retried.status)) {
       throw new BadRequestException(
         retried?.error ||
           'No fue posible enviar el mensaje. Revisa la configuración de WhatsApp',
@@ -300,7 +326,123 @@ export class WhatsAppService {
     return retried;
   }
 
-  private async send(message: TemplateMessage) {
+  async listDeliveries() {
+    const deliveries = await this.prisma.whatsAppDelivery.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        recipient: true,
+        attempts: true,
+        createdAt: true,
+        providerStatusAt: true,
+        error: true,
+        user: { select: { name: true } },
+      },
+    });
+    return deliveries.map(({ recipient, error, ...delivery }) => ({
+      ...delivery,
+      recipientMasked:
+        recipient.length > 4 ? `••••${recipient.slice(-4)}` : '••••',
+      error: error
+        ? /^Meta reportó un fallo(?: \(código \d+\))?$/.test(error)
+          ? error
+          : 'Meta rechazó el envío o falló la conexión.'
+        : null,
+    }));
+  }
+
+  async recordStatusWebhook(payload: unknown): Promise<void> {
+    const root = objectValue(payload);
+    if (
+      root?.object !== 'whatsapp_business_account' ||
+      !Array.isArray(root.entry)
+    )
+      return;
+
+    for (const entry of root.entry) {
+      const changes = objectValue(entry)?.changes;
+      if (!Array.isArray(changes)) continue;
+      for (const change of changes) {
+        const statuses = objectValue(objectValue(change)?.value)?.statuses;
+        if (!Array.isArray(statuses)) continue;
+        for (const item of statuses) {
+          const receipt = objectValue(item);
+          const providerMessageId = receipt?.id;
+          const status = receiptStatus(receipt?.status);
+          if (
+            typeof providerMessageId !== 'string' ||
+            providerMessageId.length < 1 ||
+            providerMessageId.length > 255 ||
+            !status
+          )
+            continue;
+
+          const seconds = Number(receipt?.timestamp);
+          const occurredAt =
+            Number.isSafeInteger(seconds) && seconds > 0
+              ? new Date(seconds * 1000)
+              : new Date();
+          const firstError = Array.isArray(receipt?.errors)
+            ? objectValue(receipt.errors[0])
+            : null;
+          const code = firstError?.code;
+          const errorCode =
+            status === 'FAILED' &&
+            typeof code === 'number' &&
+            Number.isSafeInteger(code)
+              ? String(code)
+              : null;
+
+          await this.prisma.whatsAppStatusEvent.createMany({
+            data: [{ providerMessageId, status, occurredAt, errorCode }],
+            skipDuplicates: true,
+          });
+          await this.syncReceipt(providerMessageId);
+        }
+      }
+    }
+  }
+
+  private async syncReceipt(providerMessageId: string): Promise<boolean> {
+    const events = await this.prisma.whatsAppStatusEvent.findMany({
+      where: { providerMessageId },
+      select: { status: true, occurredAt: true, errorCode: true },
+    });
+    const rank = { SENT: 1, FAILED: 2, DELIVERED: 3, READ: 4, PENDING: 0 };
+    const best = events.sort(
+      (a, b) =>
+        rank[b.status] - rank[a.status] ||
+        b.occurredAt.getTime() - a.occurredAt.getTime(),
+    )[0];
+    if (!best || best.status === 'PENDING') return false;
+
+    const lowerStatuses = {
+      SENT: ['PENDING'],
+      FAILED: ['PENDING', 'SENT'],
+      DELIVERED: ['PENDING', 'SENT', 'FAILED'],
+      READ: ['PENDING', 'SENT', 'FAILED', 'DELIVERED'],
+    } as const;
+    await this.prisma.whatsAppDelivery.updateMany({
+      where: {
+        providerMessageId,
+        status: { in: [...lowerStatuses[best.status]] },
+      },
+      data: {
+        status: best.status,
+        providerStatusAt: best.occurredAt,
+        error:
+          best.status === 'FAILED'
+            ? `Meta reportó un fallo${best.errorCode ? ` (código ${best.errorCode})` : ''}`
+            : null,
+      },
+    });
+    return true;
+  }
+
+  private async send(message: TemplateMessage, allowRetry = false) {
     const delivery = await this.prisma.whatsAppDelivery.upsert({
       where: { idempotencyKey: message.idempotencyKey },
       create: {
@@ -318,7 +460,11 @@ export class WhatsAppService {
       },
       update: {},
     });
-    if (delivery.status === 'SENT') return delivery;
+    if (
+      ['SENT', 'DELIVERED', 'READ'].includes(delivery.status) ||
+      (delivery.status === 'FAILED' && !allowRetry)
+    )
+      return delivery;
 
     const settings = await this.settings();
     const token = settings.accessToken;
@@ -366,15 +512,33 @@ export class WhatsAppService {
         throw new Error(
           body.error?.message ?? `WhatsApp HTTP ${response.status}`,
         );
-      return await this.prisma.whatsAppDelivery.update({
+      const providerMessageId = body.messages?.[0]?.id;
+      if (!providerMessageId)
+        throw new Error('Meta no devolvió el identificador del mensaje');
+      const accepted = await this.prisma.whatsAppDelivery.update({
         where: { id: delivery.id },
         data: {
           status: 'SENT',
           attempts: { increment: 1 },
-          providerMessageId: body.messages?.[0]?.id,
+          providerMessageId,
+          providerStatusAt: null,
           error: null,
         },
       });
+      // Meta ya aceptó el mensaje. Un fallo al consultar recibos locales no
+      // debe convertirlo en un fallo de envío ni provocar un reenvío.
+      try {
+        if (await this.syncReceipt(providerMessageId)) {
+          return (
+            (await this.prisma.whatsAppDelivery.findUnique({
+              where: { id: delivery.id },
+            })) ?? accepted
+          );
+        }
+      } catch {
+        return accepted;
+      }
+      return accepted;
     } catch (error: unknown) {
       return await this.prisma.whatsAppDelivery.update({
         where: { id: delivery.id },

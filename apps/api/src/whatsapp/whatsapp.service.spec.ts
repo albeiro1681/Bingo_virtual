@@ -87,10 +87,220 @@ describe('WhatsAppService', () => {
       idempotencyKey: delivery.idempotencyKey,
     };
 
-    await service.notifyAssignment(input);
-    await service.notifyAssignment(input);
+    for (const status of ['SENT', 'DELIVERED', 'READ', 'FAILED']) {
+      upsert.mockResolvedValue({ ...delivery, status });
+      await service.notifyAssignment(input);
+      await service.notifyAssignment(input);
+    }
 
-    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(upsert).toHaveBeenCalledTimes(8);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the strongest receipt when callbacks arrive repeated or out of order', async () => {
+    type Receipt = {
+      providerMessageId: string;
+      status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+      occurredAt: Date;
+      errorCode: string | null;
+    };
+    const events: Receipt[] = [];
+    const delivery = { providerMessageId: 'wamid-test', status: 'SENT' };
+    const prisma = {
+      whatsAppStatusEvent: {
+        createMany: jest.fn(({ data }: { data: Receipt[] }) => {
+          for (const item of data) {
+            if (
+              !events.some(
+                (saved) =>
+                  saved.providerMessageId === item.providerMessageId &&
+                  saved.status === item.status &&
+                  saved.occurredAt.getTime() === item.occurredAt.getTime(),
+              )
+            )
+              events.push(item);
+          }
+          return { count: 1 };
+        }),
+        findMany: jest.fn(() => events),
+      },
+      whatsAppDelivery: {
+        updateMany: jest.fn(
+          ({
+            where,
+            data,
+          }: {
+            where: { providerMessageId: string; status: { in: string[] } };
+            data: { status: string };
+          }) => {
+            if (
+              where.providerMessageId === delivery.providerMessageId &&
+              where.status.in.includes(delivery.status)
+            )
+              delivery.status = data.status;
+            return { count: 1 };
+          },
+        ),
+      },
+    } as unknown as PrismaService;
+    const service = new WhatsAppService(prisma, {} as ConfigService);
+    const callback = (status: string, timestamp: string) => ({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                statuses: [
+                  {
+                    id: 'wamid-test',
+                    status,
+                    timestamp,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    await service.recordStatusWebhook(callback('read', '1789900000'));
+    await service.recordStatusWebhook(callback('delivered', '1789900001'));
+    await service.recordStatusWebhook(callback('failed', '1789900002'));
+    await service.recordStatusWebhook(callback('read', '1789900000'));
+
+    expect(delivery.status).toBe('READ');
+    expect(events).toHaveLength(3);
+  });
+
+  it('reconciles a receipt received before the API response was saved', async () => {
+    const delivery = {
+      id: 'delivery-early',
+      status: 'PENDING',
+      providerMessageId: null as string | null,
+    };
+    type Receipt = {
+      providerMessageId: string;
+      status: 'DELIVERED';
+      occurredAt: Date;
+      errorCode: null;
+    };
+    const events: Receipt[] = [];
+    const prisma = {
+      whatsAppSettings: { findUnique: jest.fn().mockResolvedValue(null) },
+      whatsAppDelivery: {
+        upsert: jest.fn().mockResolvedValue(delivery),
+        findUnique: jest.fn(() => delivery),
+        update: jest.fn(
+          ({
+            data,
+          }: {
+            data: { status: string; providerMessageId: string };
+          }) => {
+            delivery.status = data.status;
+            delivery.providerMessageId = data.providerMessageId;
+            return delivery;
+          },
+        ),
+        updateMany: jest.fn(
+          ({
+            where,
+            data,
+          }: {
+            where: { providerMessageId: string; status: { in: string[] } };
+            data: { status: string };
+          }) => {
+            if (
+              delivery.providerMessageId === where.providerMessageId &&
+              where.status.in.includes(delivery.status)
+            )
+              delivery.status = data.status;
+            return { count: 1 };
+          },
+        ),
+      },
+      whatsAppStatusEvent: {
+        createMany: jest.fn(({ data }: { data: Receipt[] }) => {
+          events.push(...data);
+          return { count: 1 };
+        }),
+        findMany: jest.fn(() => events),
+      },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) =>
+        key === 'WHATSAPP_ACCESS_TOKEN'
+          ? 'test-token'
+          : key === 'WHATSAPP_PHONE_NUMBER_ID'
+            ? 'test-phone-id'
+            : fallback,
+      ),
+    } as unknown as ConfigService;
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ messages: [{ id: 'wamid-early' }] }),
+    } as Response);
+    const service = new WhatsAppService(prisma, config);
+
+    await service.recordStatusWebhook({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                statuses: [
+                  {
+                    id: 'wamid-early',
+                    status: 'delivered',
+                    timestamp: '1789900000',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(delivery.status).toBe('PENDING');
+
+    await service.notifyAssignment({
+      user: { id: 'user-1', name: 'Prueba', phone: '+573001234567' },
+      cardNumbers: [1],
+    });
+    expect(delivery.status).toBe('DELIVERED');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not expose recipients, private links or provider error details in the admin list', async () => {
+    const prisma = {
+      whatsAppDelivery: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'delivery-1',
+            kind: 'PLAYER_ACCESS',
+            status: 'FAILED',
+            recipient: '+573001234567',
+            attempts: 1,
+            createdAt: new Date('2026-09-20T12:00:00Z'),
+            providerStatusAt: null,
+            error: 'private-link?token=not-for-ui',
+            user: { name: 'Prueba' },
+          },
+        ]),
+      },
+    } as unknown as PrismaService;
+
+    const result = await new WhatsAppService(
+      prisma,
+      {} as ConfigService,
+    ).listDeliveries();
+    expect(result[0]).toMatchObject({
+      recipientMasked: '••••4567',
+      error: 'Meta rechazó el envío o falló la conexión.',
+    });
+    expect(JSON.stringify(result)).not.toContain('not-for-ui');
+    expect(JSON.stringify(result)).not.toContain('+573001234567');
   });
 });

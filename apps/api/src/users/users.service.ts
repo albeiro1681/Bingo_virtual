@@ -451,8 +451,10 @@ export class UsersService {
         results.push({
           userId,
           name: user.name,
-          status: delivery.status === 'SENT' ? 'SENT' : 'FAILED',
-          ...(delivery.status === 'SENT'
+          status: ['SENT', 'DELIVERED', 'READ'].includes(delivery.status)
+            ? 'SENT'
+            : 'FAILED',
+          ...(['SENT', 'DELIVERED', 'READ'].includes(delivery.status)
             ? {}
             : { reason: delivery.error ?? 'WhatsApp no confirmó el envío.' }),
         });

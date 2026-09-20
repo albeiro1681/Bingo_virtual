@@ -6,6 +6,7 @@ import { bingoBallLabel } from "./bingo-ball";
 import { UsersPage } from "./features/users/UsersPage";
 import { WinnersPage } from "./features/winners/WinnersPage";
 import { PrizeAmountInput } from "./features/games/PrizeAmountInput";
+import { WhatsAppDeliveries } from "./features/whatsapp/WhatsAppDeliveries";
 import { formatCop, validatePrizeAmount } from "./money";
 
 type Cell = {
@@ -872,6 +873,7 @@ function AdminApp() {
             </button>
           </form>
         )}
+        {isWhatsAppView && <WhatsAppDeliveries request={request} />}
 
         <form
           className="panel games-section"
@@ -1319,7 +1321,8 @@ function AdminApp() {
                   <div>
                     {tieBreakCandidates.map((candidate) => (
                       <strong key={candidate.id}>
-                        {candidate.card.user?.name ?? "Jugador"} · cartón #{candidate.card.number}
+                        {candidate.card.user?.name ?? "Jugador"} · cartón #
+                        {candidate.card.number}
                       </strong>
                     ))}
                   </div>
