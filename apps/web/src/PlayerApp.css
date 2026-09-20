@@ -41,6 +41,14 @@
   padding: 2rem;
   background: #f5f8f7;
 }
+.player-legal-footer {
+  margin-top: 2rem;
+  padding: 1rem 0;
+  text-align: center;
+}
+.player-legal-footer a {
+  color: #176b55;
+}
 .player-view > header {
   display: flex;
   justify-content: space-between;

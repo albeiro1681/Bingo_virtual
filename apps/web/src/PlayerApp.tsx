@@ -331,6 +331,7 @@ function PlayerApp() {
           </label>
           <button>Ingresar</button>
           <a href="/">Administración</a>
+          <a href="/privacidad.html">Política de tratamiento de datos</a>
         </form>
       </main>
     );
@@ -542,6 +543,9 @@ function PlayerApp() {
           );
         })}
       </div>
+      <footer className="player-legal-footer">
+        <a href="/privacidad.html">Política de tratamiento de datos</a>
+      </footer>
     </main>
   );
 }
