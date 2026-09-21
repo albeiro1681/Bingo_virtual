@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { generateAccessToken, hashAccessToken } from '../auth/token';
@@ -69,16 +71,21 @@ export class UsersService {
         },
       },
     });
-    const accessLink = await this.whatsapp
-      .notifyPlayerAccess({
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone!,
-        },
-        accessToken,
-      })
-      .catch(() => this.whatsapp.accessLink(accessToken));
+    const assignmentIncludesAccess = await this.whatsapp
+      .assignmentIncludesAccess()
+      .catch(() => true);
+    const accessLink = assignmentIncludesAccess
+      ? await this.whatsapp.accessLink(accessToken)
+      : await this.whatsapp
+          .notifyPlayerAccess({
+            user: {
+              id: user.id,
+              name: user.name,
+              phone: user.phone!,
+            },
+            accessToken,
+          })
+          .catch(() => this.whatsapp.accessLink(accessToken));
     return { ...user, accessToken, accessLink };
   }
 
@@ -96,7 +103,15 @@ export class UsersService {
           orderBy: { number: 'asc' },
         },
         whatsappDeliveries: {
-          where: { kind: 'PLAYER_ACCESS' },
+          where: {
+            OR: [
+              { kind: 'PLAYER_ACCESS' },
+              {
+                kind: 'CARD_ASSIGNMENT',
+                templateName: 'card_assignment_access_v1',
+              },
+            ],
+          },
           select: { id: true, status: true, updatedAt: true, error: true },
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -165,6 +180,28 @@ export class UsersService {
     }
     if (!user?.phone) throw new NotFoundException('Player phone not found');
     const recipient = options?.phone ?? user.phone;
+    if (await this.whatsapp.assignmentIncludesAccess()) {
+      const cards = await this.prisma.card.findMany({
+        where: { userId: user.id },
+        select: { number: true },
+        orderBy: { number: 'asc' },
+      });
+      if (!cards.length)
+        throw new BadRequestException(
+          'El jugador no tiene cartones asignados.',
+        );
+      const delivery = await this.whatsapp.notifyAssignment({
+        user: { id: user.id, name: user.name, phone: user.phone },
+        cardNumbers: cards.map((card) => card.number),
+        recipient,
+        idempotencyKey: `assignment-access-manual:${user.id}:${options?.requestId ?? randomUUID()}:${recipient}`,
+      });
+      return {
+        accessLink: await this.whatsapp.accessLink(user.accessToken),
+        status: delivery.status,
+        error: delivery.error,
+      };
+    }
     const delivery = await this.whatsapp.sendPlayerAccess({
       user: { id: user.id, name: user.name, phone: user.phone },
       accessToken: user.accessToken,
@@ -294,11 +331,22 @@ export class UsersService {
 
   async importPlayers(rows: ImportPlayerRowDto[]) {
     const preview = await this.previewImport(rows);
+    const assignmentMode = await this.whatsapp
+      .assignmentIncludesAccess()
+      .then((enabled) => ({ enabled, unavailable: false }))
+      .catch(() => ({ enabled: false, unavailable: true }));
+    const whatsapp = {
+      attempted: 0,
+      accepted: 0,
+      failed: 0,
+      unavailable: assignmentMode.unavailable,
+    };
     const results: Array<{
       line: number;
       success: boolean;
       userId?: string;
       errors?: string[];
+      whatsappStatus?: string;
     }> = [];
     for (const row of preview.rows) {
       if (!row.valid || !row.phone) {
@@ -378,7 +426,29 @@ export class UsersService {
           },
           { isolationLevel: 'Serializable' },
         );
-        results.push({ line: row.line, success: true, userId: user.id });
+        let whatsappStatus: string | undefined;
+        if (assignmentMode.enabled) {
+          whatsapp.attempted++;
+          try {
+            const delivery = await this.whatsapp.notifyAssignment({
+              user: { id: user.id, name: row.name, phone: row.phone },
+              cardNumbers: row.cardNumbers,
+            });
+            whatsappStatus = delivery.status;
+            if (['SENT', 'DELIVERED', 'READ'].includes(delivery.status))
+              whatsapp.accepted++;
+            else whatsapp.failed++;
+          } catch {
+            whatsappStatus = 'FAILED';
+            whatsapp.failed++;
+          }
+        }
+        results.push({
+          line: row.line,
+          success: true,
+          userId: user.id,
+          ...(whatsappStatus ? { whatsappStatus } : {}),
+        });
       } catch (error) {
         results.push({
           line: row.line,
@@ -395,6 +465,7 @@ export class UsersService {
       results,
       imported: results.filter((result) => result.success).length,
       failed: results.filter((result) => !result.success).length,
+      whatsapp,
     };
   }
 

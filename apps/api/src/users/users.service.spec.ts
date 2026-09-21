@@ -19,7 +19,10 @@ describe('UsersService', () => {
     } as unknown as PrismaService;
     const accessLink = 'https://bingo.example/player?token=private';
     const notifyPlayerAccess = jest.fn().mockResolvedValue(accessLink);
-    const whatsapp = { notifyPlayerAccess } as unknown as WhatsAppService;
+    const whatsapp = {
+      assignmentIncludesAccess: jest.fn().mockResolvedValue(false),
+      notifyPlayerAccess,
+    } as unknown as WhatsAppService;
 
     const config = {
       get: jest
@@ -41,6 +44,46 @@ describe('UsersService', () => {
       user: { id: user.id, name: user.name, phone: user.phone },
       accessToken: result.accessToken,
     });
+  });
+
+  it('does not send the marketing access template when the assignment includes the link', async () => {
+    const user = {
+      id: 'player-1',
+      name: 'Jugador',
+      phone: '+573001234567',
+    };
+    const prisma = {
+      user: { create: jest.fn().mockResolvedValue(user) },
+    } as unknown as PrismaService;
+    const notifyPlayerAccess = jest.fn();
+    const accessLink = jest
+      .fn()
+      .mockResolvedValue('https://bingo.example/player?token=private');
+    const whatsapp = {
+      assignmentIncludesAccess: jest.fn().mockResolvedValue(true),
+      notifyPlayerAccess,
+      accessLink,
+    } as unknown as WhatsAppService;
+    const config = {
+      get: jest
+        .fn()
+        .mockReturnValue('a-secure-test-encryption-key-with-32-chars'),
+    } as unknown as ConfigService;
+
+    const result = await new UsersService(
+      prisma,
+      whatsapp,
+      config,
+    ).createPlayer({
+      name: user.name,
+      phone: user.phone,
+    });
+
+    expect(result.accessLink).toBe(
+      'https://bingo.example/player?token=private',
+    );
+    expect(accessLink).toHaveBeenCalledWith(result.accessToken);
+    expect(notifyPlayerAccess).not.toHaveBeenCalled();
   });
 
   it('previews valid rows with accents and normalized Colombian phones', async () => {
@@ -195,7 +238,10 @@ describe('UsersService', () => {
       status: 'SENT',
       error: null,
     });
-    const whatsapp = { sendPlayerAccess } as unknown as WhatsAppService;
+    const whatsapp = {
+      assignmentIncludesAccess: jest.fn().mockResolvedValue(false),
+      sendPlayerAccess,
+    } as unknown as WhatsAppService;
     const config = {
       get: jest.fn().mockReturnValue(encryptionKey),
     } as unknown as ConfigService;
@@ -215,6 +261,55 @@ describe('UsersService', () => {
     });
   });
 
+  it('resends cards and their link together when the Utility template is selected', async () => {
+    const encryptionKey = 'a-secure-test-encryption-key-with-32-chars';
+    const user = {
+      id: 'player-1',
+      name: 'Jugador',
+      phone: '+573001234567',
+      tokenEncrypted: encryptSecret('private-token', encryptionKey),
+    };
+    const prisma = {
+      user: { findFirst: jest.fn().mockResolvedValue(user) },
+      card: {
+        findMany: jest.fn().mockResolvedValue([{ number: 8 }, { number: 12 }]),
+      },
+    } as unknown as PrismaService;
+    const notifyAssignment = jest
+      .fn()
+      .mockResolvedValue({ status: 'SENT', error: null });
+    const sendPlayerAccess = jest.fn();
+    const whatsapp = {
+      assignmentIncludesAccess: jest.fn().mockResolvedValue(true),
+      notifyAssignment,
+      sendPlayerAccess,
+      accessLink: jest
+        .fn()
+        .mockResolvedValue('https://bingo.example/player?token=private-token'),
+    } as unknown as WhatsAppService;
+    const config = {
+      get: jest.fn().mockReturnValue(encryptionKey),
+    } as unknown as ConfigService;
+
+    const result = await new UsersService(
+      prisma,
+      whatsapp,
+      config,
+    ).sendAccessLink(user.id, {
+      requestId: 'request-1',
+    });
+
+    expect(notifyAssignment).toHaveBeenCalledWith({
+      user: { id: user.id, name: user.name, phone: user.phone },
+      cardNumbers: [8, 12],
+      recipient: user.phone,
+      idempotencyKey:
+        'assignment-access-manual:player-1:request-1:+573001234567',
+    });
+    expect(result).toMatchObject({ status: 'SENT' });
+    expect(sendPlayerAccess).not.toHaveBeenCalled();
+  });
+
   it('imports valid rows independently so one transactional failure does not stop the rest', async () => {
     const transaction = jest
       .fn()
@@ -227,7 +322,9 @@ describe('UsersService', () => {
     } as unknown as PrismaService;
     const service = new UsersService(
       prisma,
-      {} as WhatsAppService,
+      {
+        assignmentIncludesAccess: jest.fn().mockResolvedValue(false),
+      } as unknown as WhatsAppService,
       {} as ConfigService,
     );
     jest.spyOn(service, 'previewImport').mockResolvedValue({
@@ -295,5 +392,60 @@ describe('UsersService', () => {
 
     expect(result).toMatchObject({ imported: 1, failed: 1 });
     expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps imported cards when the combined WhatsApp notice fails', async () => {
+    const prisma = {
+      $transaction: jest.fn().mockResolvedValue({ id: 'created-player' }),
+    } as unknown as PrismaService;
+    const notifyAssignment = jest
+      .fn()
+      .mockRejectedValue(new Error('Meta no disponible'));
+    const whatsapp = {
+      assignmentIncludesAccess: jest.fn().mockResolvedValue(true),
+      notifyAssignment,
+    } as unknown as WhatsAppService;
+    const service = new UsersService(prisma, whatsapp, {} as ConfigService);
+    jest.spyOn(service, 'previewImport').mockResolvedValue({
+      validRows: [],
+      invalidRows: [],
+      rows: [
+        {
+          line: 2,
+          name: 'Jugador',
+          phone: '+573001234567',
+          cardNumbers: [8],
+          valid: true,
+          errors: [],
+        },
+      ],
+      summary: {
+        total: 1,
+        valid: 1,
+        invalid: 0,
+        validUsers: 1,
+        invalidUsers: 0,
+        cardsToAssign: 1,
+      },
+    });
+
+    const result = await service.importPlayers([
+      { line: 2, name: 'Jugador', phone: '3001234567', cardNumbers: [8] },
+    ]);
+
+    expect(result).toMatchObject({
+      imported: 1,
+      failed: 0,
+      whatsapp: { attempted: 1, accepted: 0, failed: 1 },
+      results: [{ success: true, whatsappStatus: 'FAILED' }],
+    });
+    expect(notifyAssignment).toHaveBeenCalledWith({
+      user: {
+        id: 'created-player',
+        name: 'Jugador',
+        phone: '+573001234567',
+      },
+      cardNumbers: [8],
+    });
   });
 });

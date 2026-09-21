@@ -15,7 +15,16 @@ export function CsvImportDialog({
   open: boolean;
   request: AdminRequest;
   onClose: () => void;
-  onImported: (imported: number, failed: number) => Promise<void>;
+  onImported: (result: {
+    imported: number;
+    failed: number;
+    whatsapp?: {
+      attempted: number;
+      accepted: number;
+      failed: number;
+      unavailable: boolean;
+    };
+  }) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [rows, setRows] = useState<ParsedCsvPlayer[]>([]);
@@ -90,8 +99,17 @@ export function CsvImportDialog({
       const result = (await request("/api/admin/users/import", {
         method: "POST",
         body: JSON.stringify({ rows }),
-      })) as { imported: number; failed: number };
-      await onImported(result.imported, result.failed);
+      })) as {
+        imported: number;
+        failed: number;
+        whatsapp?: {
+          attempted: number;
+          accepted: number;
+          failed: number;
+          unavailable: boolean;
+        };
+      };
+      await onImported(result);
       reset();
       onClose();
     } catch (cause) {

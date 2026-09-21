@@ -704,11 +704,20 @@ export function UsersPage({ request }: { request: AdminRequest }) {
         open={importOpen}
         request={request}
         onClose={() => setImportOpen(false)}
-        onImported={async (imported, failed) => {
+        onImported={async ({ imported, failed, whatsapp }) => {
           await Promise.all([loadPlayers(), loadCatalog()]);
+          const importMessage = `${imported} jugador${imported === 1 ? "" : "es"} importado${imported === 1 ? "" : "s"}${failed ? `; ${failed} no pudieron importarse.` : "."}`;
+          const whatsappMessage = whatsapp?.unavailable
+            ? " No fue posible consultar la configuración de WhatsApp; revisa las entregas."
+            : whatsapp?.attempted
+              ? ` Meta aceptó ${whatsapp.accepted} aviso${whatsapp.accepted === 1 ? "" : "s"} de cartones${whatsapp.failed ? `; ${whatsapp.failed} fallaron.` : "."}`
+              : "";
           setNotice({
-            tone: failed ? "warning" : "success",
-            message: `${imported} jugador${imported === 1 ? "" : "es"} importado${imported === 1 ? "" : "s"}${failed ? `; ${failed} no pudieron importarse.` : "."}`,
+            tone:
+              failed || whatsapp?.failed || whatsapp?.unavailable
+                ? "warning"
+                : "success",
+            message: importMessage + whatsappMessage,
           });
         }}
       />

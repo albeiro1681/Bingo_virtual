@@ -23,9 +23,11 @@ type TemplateMessage = {
   gameId?: string;
   winnerId?: string;
   group?: boolean;
+  sensitiveParameterIndexes?: number[];
 };
 
 type ReceiptStatus = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+const CARD_ASSIGNMENT_ACCESS_TEMPLATE = 'card_assignment_access_v1';
 
 function receiptStatus(value: unknown): ReceiptStatus | null {
   switch (value) {
@@ -128,6 +130,11 @@ export class WhatsAppService {
     };
   }
 
+  async assignmentIncludesAccess(): Promise<boolean> {
+    const value = await this.settings();
+    return value.cardAssignmentTemplate === CARD_ASSIGNMENT_ACCESS_TEMPLATE;
+  }
+
   async updateSettings(dto: UpdateWhatsAppSettingsDto) {
     const { accessToken, ...data } = dto;
     const accessTokenEncrypted = accessToken
@@ -188,6 +195,7 @@ export class WhatsAppService {
       recipient: input.recipient ?? input.user.phone,
       templateName: settings.playerAccessTemplate,
       parameters: [input.user.name, link],
+      sensitiveParameterIndexes: [1],
       idempotencyKey:
         input.idempotencyKey ?? `player-access:${input.user.id}:${Date.now()}`,
       userId: input.user.id,
@@ -206,14 +214,36 @@ export class WhatsAppService {
     idempotencyKey?: string;
   }) {
     const settings = await this.settings();
+    const includesAccess =
+      settings.cardAssignmentTemplate === CARD_ASSIGNMENT_ACCESS_TEMPLATE;
+    let accessLink: string | undefined;
+    if (includesAccess) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: input.user.id },
+        select: { tokenEncrypted: true },
+      });
+      if (!user?.tokenEncrypted)
+        throw new BadRequestException(
+          'El jugador no tiene un enlace de acceso disponible.',
+        );
+      accessLink = this.playerAccessLink(
+        decryptSecret(user.tokenEncrypted, this.encryptionKey()),
+        settings.publicAppUrl,
+      );
+    }
     return this.send({
       kind: 'CARD_ASSIGNMENT',
       recipient: input.recipient ?? input.user.phone,
       templateName: settings.cardAssignmentTemplate,
-      parameters: [input.user.name, input.cardNumbers.join(', ')],
+      parameters: [
+        input.user.name,
+        input.cardNumbers.join(', '),
+        ...(accessLink ? [accessLink] : []),
+      ],
+      sensitiveParameterIndexes: includesAccess ? [2] : undefined,
       idempotencyKey:
         input.idempotencyKey ??
-        `assignment:${input.user.id}:${input.cardNumbers.join('-')}`,
+        `${includesAccess ? 'assignment-access' : 'assignment'}:${input.user.id}:${input.cardNumbers.join('-')}`,
       userId: input.user.id,
     });
   }
@@ -294,18 +324,22 @@ export class WhatsAppService {
       parameters?: unknown;
       group?: unknown;
     };
-    if (
-      !Array.isArray(payload.parameters) ||
-      !payload.parameters.every((value) => typeof value === 'string')
-    ) {
+    if (!Array.isArray(payload.parameters)) {
       throw new BadRequestException('El envío no tiene un contenido válido');
     }
+    const parameters = payload.parameters.map((value: unknown) => {
+      if (typeof value === 'string') return value;
+      const encrypted = objectValue(value)?.encrypted;
+      if (typeof encrypted === 'string')
+        return decryptSecret(encrypted, this.encryptionKey());
+      throw new BadRequestException('El envío no tiene un contenido válido');
+    });
     await this.send(
       {
         kind: delivery.kind,
         recipient: delivery.recipient,
         templateName: delivery.templateName,
-        parameters: payload.parameters,
+        parameters,
         idempotencyKey: delivery.idempotencyKey,
         userId: delivery.userId ?? undefined,
         gameId: delivery.gameId ?? undefined,
@@ -443,6 +477,7 @@ export class WhatsAppService {
   }
 
   private async send(message: TemplateMessage, allowRetry = false) {
+    const sensitiveIndexes = new Set(message.sensitiveParameterIndexes ?? []);
     const delivery = await this.prisma.whatsAppDelivery.upsert({
       where: { idempotencyKey: message.idempotencyKey },
       create: {
@@ -450,7 +485,11 @@ export class WhatsAppService {
         recipient: message.recipient,
         templateName: message.templateName,
         payload: {
-          parameters: message.parameters,
+          parameters: message.parameters.map((value, index) =>
+            sensitiveIndexes.has(index)
+              ? { encrypted: encryptSecret(value, this.encryptionKey()) }
+              : value,
+          ),
           group: message.group ?? false,
         },
         idempotencyKey: message.idempotencyKey,

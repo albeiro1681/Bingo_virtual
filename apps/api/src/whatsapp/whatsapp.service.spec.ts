@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { PrismaService } from '../prisma/prisma.service';
+import { decryptSecret, encryptSecret } from '../auth/secret-box';
 import { WhatsAppService } from './whatsapp.service';
 
 describe('WhatsAppService', () => {
@@ -95,6 +96,170 @@ describe('WhatsAppService', () => {
 
     expect(upsert).toHaveBeenCalledTimes(8);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses the combined Utility template with an encrypted stored access link', async () => {
+    const encryptionKey = 'a-secure-test-encryption-key-with-32-chars';
+    const storedLink = 'https://bingo.example/player?token=private-token';
+    const upsert = jest.fn().mockResolvedValue({
+      id: 'delivery-1',
+      status: 'PENDING',
+    });
+    const prisma = {
+      whatsAppSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          cardAssignmentTemplate: 'card_assignment_access_v1',
+          publicAppUrl: 'https://bingo.example',
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          tokenEncrypted: encryptSecret('private-token', encryptionKey),
+        }),
+      },
+      whatsAppDelivery: {
+        upsert,
+        update: jest.fn().mockResolvedValue({ status: 'SENT' }),
+      },
+      whatsAppStatusEvent: { findMany: jest.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'APP_ENCRYPTION_KEY') return encryptionKey;
+        if (key === 'WHATSAPP_ACCESS_TOKEN') return 'test-token';
+        if (key === 'WHATSAPP_PHONE_NUMBER_ID') return 'test-phone-id';
+        return fallback;
+      }),
+    } as unknown as ConfigService;
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ messages: [{ id: 'wamid-test' }] }),
+    } as Response);
+
+    await new WhatsAppService(prisma, config).notifyAssignment({
+      user: { id: 'player-1', name: 'Jugador', phone: '+573001234567' },
+      cardNumbers: [8, 12],
+    });
+
+    const create = (
+      upsert.mock.calls as Array<
+        [
+          {
+            create: {
+              idempotencyKey: string;
+              payload: { parameters: Array<string | { encrypted: string }> };
+            };
+          },
+        ]
+      >
+    )[0][0].create;
+    expect(create.idempotencyKey).toBe('assignment-access:player-1:8-12');
+    expect(JSON.stringify(create.payload)).not.toContain('private-token');
+    const storedLinkParameter = create.payload.parameters[2];
+    if (typeof storedLinkParameter === 'string')
+      throw new Error('El enlace se guardó sin cifrar');
+    expect(decryptSecret(storedLinkParameter.encrypted, encryptionKey)).toBe(
+      storedLink,
+    );
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string) as {
+      template: object;
+    };
+    expect(sent.template).toMatchObject({
+      name: 'card_assignment_access_v1',
+      components: [
+        {
+          parameters: [
+            { text: 'Jugador' },
+            { text: '8, 12' },
+            { text: storedLink },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('keeps the existing two-parameter assignment template unchanged by default', async () => {
+    const upsert = jest.fn().mockResolvedValue({
+      id: 'delivery-1',
+      status: 'SENT',
+    });
+    const findUser = jest.fn();
+    const prisma = {
+      whatsAppSettings: { findUnique: jest.fn().mockResolvedValue(null) },
+      user: { findUnique: findUser },
+      whatsAppDelivery: { upsert },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => fallback),
+    } as unknown as ConfigService;
+
+    await new WhatsAppService(prisma, config).notifyAssignment({
+      user: { id: 'player-1', name: 'Jugador', phone: '+573001234567' },
+      cardNumbers: [8, 12],
+    });
+
+    expect(findUser).not.toHaveBeenCalled();
+    const create = (upsert.mock.calls as Array<[{ create: object }]>)[0][0]
+      .create;
+    expect(create).toMatchObject({
+      templateName: 'card_assignment',
+      idempotencyKey: 'assignment:player-1:8-12',
+      payload: { parameters: ['Jugador', '8, 12'] },
+    });
+  });
+
+  it('decrypts stored access links when retrying a failed delivery', async () => {
+    const encryptionKey = 'a-secure-test-encryption-key-with-32-chars';
+    const link = 'https://bingo.example/player?token=private-token';
+    const delivery = {
+      id: 'delivery-1',
+      kind: 'CARD_ASSIGNMENT',
+      status: 'FAILED',
+      recipient: '+573001234567',
+      templateName: 'card_assignment_access_v1',
+      payload: {
+        parameters: [
+          'Jugador',
+          '8',
+          { encrypted: encryptSecret(link, encryptionKey) },
+        ],
+      },
+      idempotencyKey: 'assignment-access:player-1:8',
+      userId: 'player-1',
+      gameId: null,
+      winnerId: null,
+    };
+    const prisma = {
+      whatsAppSettings: { findUnique: jest.fn().mockResolvedValue(null) },
+      whatsAppDelivery: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(delivery)
+          .mockResolvedValueOnce({ ...delivery, status: 'SENT' }),
+        upsert: jest.fn().mockResolvedValue(delivery),
+        update: jest.fn().mockResolvedValue({ status: 'SENT' }),
+      },
+      whatsAppStatusEvent: { findMany: jest.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => {
+        if (key === 'APP_ENCRYPTION_KEY') return encryptionKey;
+        if (key === 'WHATSAPP_ACCESS_TOKEN') return 'test-token';
+        if (key === 'WHATSAPP_PHONE_NUMBER_ID') return 'test-phone-id';
+        return fallback;
+      }),
+    } as unknown as ConfigService;
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ messages: [{ id: 'wamid-test' }] }),
+    } as Response);
+
+    await new WhatsAppService(prisma, config).retryDelivery(delivery.id);
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string) as {
+      template: { components: Array<{ parameters: Array<{ text: string }> }> };
+    };
+    expect(sent.template.components[0].parameters[2].text).toBe(link);
   });
 
   it('keeps the strongest receipt when callbacks arrive repeated or out of order', async () => {
