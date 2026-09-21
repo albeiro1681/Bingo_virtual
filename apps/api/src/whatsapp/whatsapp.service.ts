@@ -105,15 +105,6 @@ export class WhatsAppService {
           'WHATSAPP_TEMPLATE_WINNER_PLAYER',
           'winner_player',
         ),
-      winnerFundTemplate:
-        stored?.winnerFundTemplate ||
-        this.config.get<string>(
-          'WHATSAPP_TEMPLATE_WINNER_GROUP',
-          'winner_group',
-        ),
-      fundContacts:
-        stored?.fundContacts ||
-        this.config.get<string>('WHATSAPP_FUND_CONTACTS', ''),
       publicAppUrl:
         configuredPublicAppUrl ||
         stored?.publicAppUrl ||
@@ -136,7 +127,13 @@ export class WhatsAppService {
   }
 
   async updateSettings(dto: UpdateWhatsAppSettingsDto) {
-    const { accessToken, ...data } = dto;
+    const { accessToken } = dto;
+    const data = { ...dto };
+    delete data.accessToken;
+    // Se aceptan, pero se ignoran, para no romper formularios antiguos que
+    // pudieran seguir abiertos durante el despliegue.
+    delete data.winnerFundTemplate;
+    delete data.fundContacts;
     const accessTokenEncrypted = accessToken
       ? encryptSecret(accessToken, this.encryptionKey())
       : undefined;
@@ -290,27 +287,6 @@ export class WhatsAppService {
         userId: winner.card.user.id,
         gameId: input.game.id,
         winnerId: winner.id,
-      });
-    }
-
-    const summary = input.winners
-      .map(
-        (winner) =>
-          `${winner.card.user.name} (cartón ${winner.card.number ?? '—'})`,
-      )
-      .join(', ');
-    const contacts = settings.fundContacts
-      .split(',')
-      .map((phone) => phone.trim())
-      .filter(Boolean);
-    for (const phone of contacts) {
-      await this.send({
-        kind: 'WINNER_CONTACT',
-        recipient: phone,
-        templateName: settings.winnerFundTemplate,
-        parameters: [input.game.name, summary],
-        idempotencyKey: `winner-contact:${input.game.id}:${phone}:${input.winners.map((winner) => winner.id).join('-')}`,
-        gameId: input.game.id,
       });
     }
   }

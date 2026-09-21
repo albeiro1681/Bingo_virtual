@@ -79,9 +79,8 @@ Aplicación web de bingo virtual para aproximadamente 50 usuarios concurrentes y
 - La tabla de Usuarios permite seleccionar registros visibles o todos los resultados filtrados y enviar enlaces de acceso por WhatsApp en lote, conservando resultados individuales de enviados, fallidos y omitidos.
 - Al asignar cartones se envía por WhatsApp un enlace que contiene el token de acceso del jugador.
 - La vista del jugador consume el token del enlace, lo guarda en la sesión y limpia la URL inmediatamente.
-- Al detectar ganadores se notifica por WhatsApp al ganador y al canal configurado de FECSUPOL.
+- Al detectar ganadores se notifica por WhatsApp exclusivamente al jugador ganador; no se envían avisos automáticos adicionales a contactos o grupos de FECSUPOL.
 - Utilizar exclusivamente WhatsApp Cloud API oficial; no automatizar WhatsApp Web ni usar clientes no oficiales.
-- El envío a grupos depende de la elegibilidad de la cuenta de Meta; debe existir un modo alternativo de notificación individual a responsables.
 - Los fallos de WhatsApp no deben revertir ni bloquear el resultado del sorteo.
 - Registrar entregas y reintentos de WhatsApp de forma idempotente y no almacenar credenciales de Meta en Git.
 - Si una jugada produce más de un ganador, el sorteo debe pasar automáticamente a estado de desempate y conservar los cartones candidatos.

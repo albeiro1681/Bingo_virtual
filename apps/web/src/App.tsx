@@ -68,8 +68,6 @@ type WhatsAppSettings = {
   playerAccessTemplate: string;
   cardAssignmentTemplate: string;
   winnerPlayerTemplate: string;
-  winnerFundTemplate: string;
-  fundContacts: string;
   publicAppUrl: string;
 };
 
@@ -766,18 +764,6 @@ function AdminApp() {
                 }
               />
             </label>
-            <label>
-              Contactos FECSUPOL (E.164, separados por coma)
-              <input
-                value={whatsappSettings.fundContacts ?? ""}
-                onChange={(event) =>
-                  setWhatsappSettings({
-                    ...whatsappSettings,
-                    fundContacts: event.target.value,
-                  })
-                }
-              />
-            </label>
             <details>
               <summary>Plantillas y versión</summary>
               <label>
@@ -836,18 +822,6 @@ function AdminApp() {
                     setWhatsappSettings({
                       ...whatsappSettings,
                       winnerPlayerTemplate: event.target.value,
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Plantilla FECSUPOL
-                <input
-                  value={whatsappSettings.winnerFundTemplate}
-                  onChange={(event) =>
-                    setWhatsappSettings({
-                      ...whatsappSettings,
-                      winnerFundTemplate: event.target.value,
                     })
                   }
                 />

@@ -30,6 +30,40 @@ describe('WhatsAppService', () => {
     );
   });
 
+  it('ignores legacy FECSUPOL notification settings from cached forms', async () => {
+    const upsert = jest.fn().mockResolvedValue({});
+    const prisma = {
+      whatsAppSettings: {
+        upsert,
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => fallback),
+    } as unknown as ConfigService;
+
+    const result = await new WhatsAppService(prisma, config).updateSettings({
+      phoneNumberId: '1234567890',
+      winnerFundTemplate: 'winner_group',
+      fundContacts: '+573009999999',
+    });
+
+    expect(upsert).toHaveBeenCalledWith({
+      where: { id: 1 },
+      create: {
+        id: 1,
+        phoneNumberId: '1234567890',
+        accessTokenEncrypted: undefined,
+      },
+      update: {
+        phoneNumberId: '1234567890',
+        accessTokenEncrypted: undefined,
+      },
+    });
+    expect(result).not.toHaveProperty('winnerFundTemplate');
+    expect(result).not.toHaveProperty('fundContacts');
+  });
+
   it('reports a retry as failed when WhatsApp is not configured', async () => {
     const delivery = {
       id: 'delivery-1',
@@ -260,6 +294,72 @@ describe('WhatsAppService', () => {
       template: { components: Array<{ parameters: Array<{ text: string }> }> };
     };
     expect(sent.template.components[0].parameters[2].text).toBe(link);
+  });
+
+  it('notifies only the winning player and ignores legacy FECSUPOL contacts', async () => {
+    const upsert = jest.fn().mockResolvedValue({
+      id: 'winner-delivery',
+      status: 'SENT',
+    });
+    const prisma = {
+      whatsAppSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          winnerPlayerTemplate: 'winner_player',
+          winnerFundTemplate: 'winner_group',
+          fundContacts: '+573009999999',
+        }),
+      },
+      whatsAppDelivery: { upsert },
+    } as unknown as PrismaService;
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => fallback),
+    } as unknown as ConfigService;
+
+    await new WhatsAppService(prisma, config).notifyWinners({
+      game: { id: 'game-1', name: 'Sorteo de prueba' },
+      winners: [
+        {
+          id: 'winner-1',
+          card: {
+            number: 25,
+            user: {
+              id: 'player-1',
+              name: 'Persona de prueba',
+              phone: '+573001234567',
+            },
+          },
+        },
+        {
+          id: 'winner-without-phone',
+          card: {
+            number: 26,
+            user: {
+              id: 'player-2',
+              name: 'Sin celular',
+              phone: null,
+            },
+          },
+        },
+      ],
+    });
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          kind: 'WINNER_PLAYER',
+          recipient: '+573001234567',
+          templateName: 'winner_player',
+          idempotencyKey: 'winner-player:winner-1',
+          payload: {
+            parameters: ['Persona de prueba', 'Sorteo de prueba', '25'],
+            group: false,
+          },
+        }) as unknown,
+      }),
+    );
+    expect(JSON.stringify(upsert.mock.calls)).not.toContain('winner_group');
+    expect(JSON.stringify(upsert.mock.calls)).not.toContain('+573009999999');
   });
 
   it('keeps the strongest receipt when callbacks arrive repeated or out of order', async () => {
