@@ -331,7 +331,7 @@ function PlayerApp() {
           </label>
           <button>Ingresar</button>
           <a href="/">Administración</a>
-          <a href="/privacidad.html">Política de tratamiento de datos</a>
+          <a href="/condiciones-del-juego.html">Condiciones del juego</a>
         </form>
       </main>
     );
@@ -544,7 +544,7 @@ function PlayerApp() {
         })}
       </div>
       <footer className="player-legal-footer">
-        <a href="/privacidad.html">Política de tratamiento de datos</a>
+        <a href="/condiciones-del-juego.html">Condiciones del juego</a>
       </footer>
     </main>
   );
