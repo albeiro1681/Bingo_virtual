@@ -70,6 +70,12 @@ type WhatsAppSettings = {
   winnerPlayerTemplate: string;
   publicAppUrl: string;
 };
+type LiveStreamSettings = {
+  enabled: boolean;
+  youtubeVideoId: string | null;
+  youtubeUrl: string;
+  updatedAt: string | null;
+};
 
 class HttpError extends Error {
   readonly status: number;
@@ -193,6 +199,8 @@ function AdminApp() {
   const [whatsappSettings, setWhatsappSettings] =
     useState<WhatsAppSettings | null>(null);
   const [whatsappToken, setWhatsappToken] = useState("");
+  const [liveStreamSettings, setLiveStreamSettings] =
+    useState<LiveStreamSettings | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [rollingNumber, setRollingNumber] = useState<number | null>(null);
   const [tieBreaking, setTieBreaking] = useState(false);
@@ -282,6 +290,7 @@ function AdminApp() {
         request("/api/admin/patterns"),
         request("/api/admin/games"),
         request("/api/admin/whatsapp/settings"),
+        request("/api/admin/live-stream"),
       ]);
       const unauthorized = results.find(
         (result) =>
@@ -295,6 +304,7 @@ function AdminApp() {
         (value: unknown) => setPatterns(value as Pattern[]),
         (value: unknown) => setGames(value as Game[]),
         (value: unknown) => setWhatsappSettings(value as WhatsAppSettings),
+        (value: unknown) => setLiveStreamSettings(value as LiveStreamSettings),
       ];
       results.forEach((result, index) => {
         if (result.status === "fulfilled") setters[index](result.value);
@@ -848,6 +858,68 @@ function AdminApp() {
           </form>
         )}
         {isWhatsAppView && <WhatsAppDeliveries request={request} />}
+
+        {liveStreamSettings && (
+          <form
+            className="panel games-section live-stream-section"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit(async () => {
+                const updated = (await request("/api/admin/live-stream", {
+                  method: "PUT",
+                  body: JSON.stringify({
+                    youtubeUrl: liveStreamSettings.youtubeUrl,
+                    enabled: liveStreamSettings.enabled,
+                  }),
+                })) as LiveStreamSettings;
+                setLiveStreamSettings(updated);
+                setMessage("Configuración de transmisión guardada.");
+              });
+            }}
+          >
+            <div>
+              <p className="organization">EN VIVO</p>
+              <h2>Transmisión del sorteo</h2>
+            </div>
+            <p>Este video será el mismo para todos los sorteos y jugadores.</p>
+            <label>
+              Enlace de YouTube
+              <input
+                type="url"
+                inputMode="url"
+                placeholder="https://www.youtube.com/watch?v=..."
+                value={liveStreamSettings.youtubeUrl}
+                onChange={(event) =>
+                  setLiveStreamSettings({
+                    ...liveStreamSettings,
+                    youtubeUrl: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="live-stream-toggle">
+              <input
+                type="checkbox"
+                checked={liveStreamSettings.enabled}
+                onChange={(event) =>
+                  setLiveStreamSettings({
+                    ...liveStreamSettings,
+                    enabled: event.target.checked,
+                  })
+                }
+              />
+              Mostrar la transmisión a los jugadores
+            </label>
+            <small>
+              Actívala después de comprobar que YouTube permite insertar el
+              video. Al desactivarla, los cartones siguen funcionando
+              normalmente.
+            </small>
+            <button className="primary" disabled={submitting}>
+              {submitting ? "Guardando…" : "Guardar transmisión"}
+            </button>
+          </form>
+        )}
 
         <form
           className="panel games-section"

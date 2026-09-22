@@ -15,13 +15,27 @@ describe('PlayerController', () => {
       card: { findMany },
       game: { findFirst: jest.fn().mockResolvedValue(null) },
     } as unknown as PrismaService;
-    const controller = new PlayerController(prisma);
+    const liveStream = {
+      getSettings: jest.fn().mockResolvedValue({
+        enabled: false,
+        youtubeVideoId: null,
+        youtubeUrl: '',
+        updatedAt: null,
+      }),
+    };
+    const controller = new PlayerController(prisma, liveStream as never);
 
     await expect(
       controller.session({ player } as PlayerRequest),
     ).resolves.toEqual({
       player,
       cards: [{ ...card, game: null }],
+      liveStream: {
+        enabled: false,
+        youtubeVideoId: null,
+        youtubeUrl: '',
+        updatedAt: null,
+      },
     });
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: player.id } }),

@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { CardsModule } from './cards/cards.module';
 import { DrawsModule } from './draws/draws.module';
 import { GamesModule } from './games/games.module';
+import { LiveStreamModule } from './live-stream/live-stream.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PlayerModule } from './player/player.module';
 import { PatternsModule } from './patterns/patterns.module';
@@ -28,6 +29,7 @@ import { WinnersModule } from './winners/winners.module';
     DrawsModule,
     UsersModule,
     GamesModule,
+    LiveStreamModule,
     CardsModule,
     PlayerModule,
     PatternsModule,

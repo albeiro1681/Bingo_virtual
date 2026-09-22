@@ -140,6 +140,24 @@
   display: grid;
   gap: 0.35rem;
 }
+.live-stream-section {
+  border-color: #b8d9ce;
+  background: linear-gradient(180deg, #f1faf7 0, #fff 45%);
+}
+.live-stream-section > p {
+  color: #53645e;
+}
+.live-stream-toggle {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  font-weight: 750;
+}
+.live-stream-toggle input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  accent-color: var(--green);
+}
 input,
 select {
   min-width: 0;

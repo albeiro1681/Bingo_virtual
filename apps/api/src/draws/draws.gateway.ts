@@ -120,6 +120,10 @@ export class DrawsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('game:updated', payload);
   }
 
+  liveStreamUpdated(payload: unknown): void {
+    this.server.emit('live-stream:updated', payload);
+  }
+
   async cardsUpdated(userId: string): Promise<void> {
     const room = this.playerRoom(userId);
     this.server.to(room).emit('cards:updated', { userId });

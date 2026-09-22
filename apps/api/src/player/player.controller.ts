@@ -1,12 +1,16 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { PlayerTokenGuard } from '../auth/player-token.guard';
 import type { PlayerRequest } from '../auth/player-token.guard';
+import { LiveStreamService } from '../live-stream/live-stream.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('api/player')
 @UseGuards(PlayerTokenGuard)
 export class PlayerController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly liveStream: LiveStreamService,
+  ) {}
 
   @Get('me')
   me(@Req() request: PlayerRequest) {
@@ -15,9 +19,14 @@ export class PlayerController {
 
   @Get('session')
   async session(@Req() request: PlayerRequest) {
+    const [cards, liveStream] = await Promise.all([
+      this.cardsForPlayer(request.player.id),
+      this.liveStream.getSettings(),
+    ]);
     return {
       player: request.player,
-      cards: await this.cardsForPlayer(request.player.id),
+      cards,
+      liveStream,
     };
   }
 

@@ -112,6 +112,13 @@ model WhatsAppSettings {
   updatedAt              DateTime @updatedAt
 }
 
+model LiveStreamSettings {
+  id             Int      @id @default(1)
+  youtubeVideoId String?
+  enabled        Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+}
+
 model CardAssignmentAudit {
   id             String   @id @default(cuid())
   cardId         String

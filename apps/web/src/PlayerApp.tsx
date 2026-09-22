@@ -32,9 +32,16 @@ type PlayerCard = {
     tieBreakCandidates: Array<{ id: string; card: TieBreakCard }>;
   } | null;
 };
+type LiveStreamSettings = {
+  enabled: boolean;
+  youtubeVideoId: string | null;
+  youtubeUrl: string;
+  updatedAt: string | null;
+};
 type PlayerSession = {
   player: { id: string; name: string };
   cards: PlayerCard[];
+  liveStream: LiveStreamSettings;
 };
 
 class HttpError extends Error {
@@ -65,6 +72,78 @@ function gameStatusLabel(status: string): string {
   return gameStatusLabels[status] ?? "Estado desconocido";
 }
 
+function LiveStreamPanel({ settings }: { settings: LiveStreamSettings }) {
+  const [minimized, setMinimized] = useState(false);
+  const [started, setStarted] = useState(false);
+  const videoId = settings.youtubeVideoId;
+
+  if (!settings.enabled || !videoId) return null;
+
+  if (minimized) {
+    return (
+      <aside
+        className="live-stream-panel is-minimized"
+        aria-label="Transmisión del sorteo"
+      >
+        <span className="live-stream-dot" aria-hidden="true" />
+        <strong>Transmisión del sorteo</strong>
+        <button type="button" onClick={() => setMinimized(false)}>
+          Mostrar
+        </button>
+      </aside>
+    );
+  }
+
+  return (
+    <aside
+      className={`live-stream-panel ${started ? "is-playing" : ""}`}
+      aria-label="Transmisión del sorteo"
+    >
+      <header>
+        <div>
+          <span className="live-stream-dot" aria-hidden="true" />
+          <strong>Transmisión del sorteo</strong>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setStarted(false);
+            setMinimized(true);
+          }}
+        >
+          Minimizar
+        </button>
+      </header>
+      {started ? (
+        <div className="live-stream-frame">
+          <iframe
+            src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0`}
+            title="Transmisión en vivo del Bingo Virtual FECSUPOL"
+            allow="autoplay; encrypted-media; picture-in-picture; web-share"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        </div>
+      ) : (
+        <div className="live-stream-start">
+          <strong>La transmisión está disponible</strong>
+          <span>El video consume datos móviles y puede tener retraso.</span>
+          <button type="button" onClick={() => setStarted(true)}>
+            Ver transmisión
+          </button>
+        </div>
+      )}
+      <p className="live-stream-notice">
+        Las balotas y resultados oficiales son los mostrados por el Bingo
+        Virtual.
+      </p>
+      <a href={settings.youtubeUrl} target="_blank" rel="noopener noreferrer">
+        Abrir en YouTube
+      </a>
+    </aside>
+  );
+}
+
 function PlayerApp() {
   const [token, setToken] = useState(() => {
     const linkToken = new URLSearchParams(window.location.search).get("token");
@@ -81,6 +160,7 @@ function PlayerApp() {
     null,
   );
   const [cards, setCards] = useState<PlayerCard[]>([]);
+  const [liveStream, setLiveStream] = useState<LiveStreamSettings | null>(null);
   const [marks, setMarks] = useState<Record<string, string[]>>(() => {
     try {
       return JSON.parse(
@@ -144,6 +224,7 @@ function PlayerApp() {
             )) as PlayerSession;
             setPlayer(nextSession.player);
             setCards(nextSession.cards);
+            setLiveStream(nextSession.liveStream);
             setMessage("");
             return;
           } catch (error) {
@@ -155,6 +236,7 @@ function PlayerApp() {
               sessionStorage.removeItem("fecs-player-token");
               setPlayer(null);
               setCards([]);
+              setLiveStream(null);
               setLoginMessage(nextMessage);
               setToken("");
               return;
@@ -204,6 +286,7 @@ function PlayerApp() {
     socket.on("winner:detected", sync);
     socket.on("game:updated", sync);
     socket.on("cards:updated", sync);
+    socket.on("live-stream:updated", sync);
     socket.on("tie-break:completed", sync);
     socket.on("connect", () => {
       clearWarning();
@@ -413,19 +496,92 @@ function PlayerApp() {
           <p>Cuando FECSUPOL te asigne un cartón aparecerá aquí.</p>
         </section>
       )}
-      <div className="player-cards">
-        {cards.map((card) => {
-          const game = card.game;
-          if (!game)
+      <div
+        className={`player-content-layout ${liveStream?.enabled && liveStream.youtubeVideoId ? "has-live-stream" : ""}`}
+      >
+        {liveStream && <LiveStreamPanel settings={liveStream} />}
+        <div className="player-cards">
+          {cards.map((card) => {
+            const game = card.game;
+            if (!game)
+              return (
+                <article className="player-card" key={card.id}>
+                  <div className="card-top">
+                    <div>
+                      <h2>Cartón #{card.number ?? "—"}</h2>
+                      <span>Asignación permanente</span>
+                    </div>
+                  </div>
+                  <p className="objective">Cartón asignado por FECSUPOL</p>
+                  <div className="bingo-grid">
+                    <div className="bingo-head">
+                      {columns.map((column) => (
+                        <strong key={column}>{column}</strong>
+                      ))}
+                    </div>
+                    {Array.from({ length: 5 }, (_, row) => (
+                      <div className="bingo-row" key={row}>
+                        {Array.from({ length: 5 }, (_, column) =>
+                          card.cells.find(
+                            (cell) =>
+                              cell.row === row && cell.column === column,
+                          ),
+                        ).map((cell, column) => (
+                          <span
+                            key={cell?.id ?? column}
+                            className={cell?.isFree ? "free" : undefined}
+                            aria-label={
+                              cell?.isFree ? "Centro libre" : undefined
+                            }
+                          >
+                            {cell?.isFree ? "★" : cell?.number}
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              );
+            const drawn = new Set(game.drawnBalls.map((ball) => ball.number));
+            const required = new Set(
+              game.winningCells.map((cell) => `${cell.row}:${cell.column}`),
+            );
+            const latest = game.drawnBalls.at(-1);
+            const winner = game.finalWinnerId
+              ? game.finalWinnerId === card.id
+              : game.status === "FINISHED" &&
+                game.winners.length === 1 &&
+                game.winners[0].cardId === card.id;
+            const tied =
+              game.status === "TIE_BREAK" &&
+              game.tieBreakCandidates.some(
+                (candidate) => candidate.card.id === card.id,
+              );
             return (
-              <article className="player-card" key={card.id}>
+              <article
+                className={`player-card ${winner ? "is-winner" : ""} ${tied ? "is-tied" : ""}`}
+                key={card.id}
+              >
                 <div className="card-top">
                   <div>
-                    <h2>Cartón #{card.number ?? "—"}</h2>
-                    <span>Asignación permanente</span>
+                    <h2>{game.name}</h2>
+                    <span>
+                      Cartón #{card.number ?? "—"} ·{" "}
+                      {gameStatusLabel(game.status)}
+                    </span>
+                  </div>
+                  <div className="latest-player-ball">
+                    <small>Última</small>
+                    <strong>
+                      {latest ? bingoBallLabel(latest.number) : "—"}
+                    </strong>
                   </div>
                 </div>
-                <p className="objective">Cartón asignado por FECSUPOL</p>
+                <p className="objective">
+                  {game.winningType === "CUSTOM"
+                    ? `Figura: ${game.patternName}`
+                    : "Objetivo: llenar el cartón"}
+                </p>
                 <div className="bingo-grid">
                   <div className="bingo-head">
                     {columns.map((column) => (
@@ -438,110 +594,45 @@ function PlayerApp() {
                         card.cells.find(
                           (cell) => cell.row === row && cell.column === column,
                         ),
-                      ).map((cell, column) => (
-                        <span
-                          key={cell?.id ?? column}
-                          className={cell?.isFree ? "free" : undefined}
-                          aria-label={cell?.isFree ? "Centro libre" : undefined}
-                        >
-                          {cell?.isFree ? "★" : cell?.number}
-                        </span>
-                      ))}
+                      ).map((cell, column) => {
+                        if (!cell) return <span key={column} />;
+                        const marked =
+                          cell.isFree ||
+                          drawn.has(cell.number ?? -1) ||
+                          (marks[card.id] ?? []).includes(cell.id);
+                        const target =
+                          game.winningType !== "CUSTOM" ||
+                          required.has(`${cell.row}:${cell.column}`);
+                        return (
+                          <button
+                            type="button"
+                            key={cell.id}
+                            className={`${marked ? "marked" : ""} ${target ? "target" : ""}`}
+                            onClick={() => toggleMark(card.id, cell.id)}
+                          >
+                            {cell.isFree ? "★" : cell.number}
+                          </button>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>
+                <div className="player-history">
+                  <strong>Balotas</strong>
+                  <div>
+                    {game.drawnBalls.map((ball) => (
+                      <span key={ball.id}>{ball.number}</span>
+                    ))}
+                  </div>
+                </div>
+                <small className="manual-note">
+                  La marcación es una ayuda visual. FECSUPOL valida el ganador
+                  automáticamente.
+                </small>
               </article>
             );
-          const drawn = new Set(game.drawnBalls.map((ball) => ball.number));
-          const required = new Set(
-            game.winningCells.map((cell) => `${cell.row}:${cell.column}`),
-          );
-          const latest = game.drawnBalls.at(-1);
-          const winner = game.finalWinnerId
-            ? game.finalWinnerId === card.id
-            : game.status === "FINISHED" &&
-              game.winners.length === 1 &&
-              game.winners[0].cardId === card.id;
-          const tied =
-            game.status === "TIE_BREAK" &&
-            game.tieBreakCandidates.some(
-              (candidate) => candidate.card.id === card.id,
-            );
-          return (
-            <article
-              className={`player-card ${winner ? "is-winner" : ""} ${tied ? "is-tied" : ""}`}
-              key={card.id}
-            >
-              <div className="card-top">
-                <div>
-                  <h2>{game.name}</h2>
-                  <span>
-                    Cartón #{card.number ?? "—"} ·{" "}
-                    {gameStatusLabel(game.status)}
-                  </span>
-                </div>
-                <div className="latest-player-ball">
-                  <small>Última</small>
-                  <strong>
-                    {latest ? bingoBallLabel(latest.number) : "—"}
-                  </strong>
-                </div>
-              </div>
-              <p className="objective">
-                {game.winningType === "CUSTOM"
-                  ? `Figura: ${game.patternName}`
-                  : "Objetivo: llenar el cartón"}
-              </p>
-              <div className="bingo-grid">
-                <div className="bingo-head">
-                  {columns.map((column) => (
-                    <strong key={column}>{column}</strong>
-                  ))}
-                </div>
-                {Array.from({ length: 5 }, (_, row) => (
-                  <div className="bingo-row" key={row}>
-                    {Array.from({ length: 5 }, (_, column) =>
-                      card.cells.find(
-                        (cell) => cell.row === row && cell.column === column,
-                      ),
-                    ).map((cell, column) => {
-                      if (!cell) return <span key={column} />;
-                      const marked =
-                        cell.isFree ||
-                        drawn.has(cell.number ?? -1) ||
-                        (marks[card.id] ?? []).includes(cell.id);
-                      const target =
-                        game.winningType !== "CUSTOM" ||
-                        required.has(`${cell.row}:${cell.column}`);
-                      return (
-                        <button
-                          type="button"
-                          key={cell.id}
-                          className={`${marked ? "marked" : ""} ${target ? "target" : ""}`}
-                          onClick={() => toggleMark(card.id, cell.id)}
-                        >
-                          {cell.isFree ? "★" : cell.number}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-              <div className="player-history">
-                <strong>Balotas</strong>
-                <div>
-                  {game.drawnBalls.map((ball) => (
-                    <span key={ball.id}>{ball.number}</span>
-                  ))}
-                </div>
-              </div>
-              <small className="manual-note">
-                La marcación es una ayuda visual. FECSUPOL valida el ganador
-                automáticamente.
-              </small>
-            </article>
-          );
-        })}
+          })}
+        </div>
       </div>
       <footer className="player-legal-footer">
         <a href="/condiciones-del-juego.html">Condiciones del juego</a>
