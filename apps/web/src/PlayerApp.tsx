@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import "./PlayerApp.css";
 import { bingoBallLabel } from "./bingo-ball";
@@ -75,7 +75,47 @@ function gameStatusLabel(status: string): string {
 function LiveStreamPanel({ settings }: { settings: LiveStreamSettings }) {
   const [minimized, setMinimized] = useState(false);
   const [started, setStarted] = useState(false);
+  const [playbackKey, setPlaybackKey] = useState(0);
+  const resumeTimer = useRef<number | null>(null);
   const videoId = settings.youtubeVideoId;
+
+  const resumePlayback = useCallback(() => {
+    if (resumeTimer.current !== null) {
+      window.clearTimeout(resumeTimer.current);
+    }
+    resumeTimer.current = window.setTimeout(() => {
+      setPlaybackKey((current) => current + 1);
+      resumeTimer.current = null;
+    }, 150);
+  }, []);
+
+  useEffect(() => {
+    if (!started) return;
+
+    let wasHidden = document.visibilityState === "hidden";
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        wasHidden = true;
+        return;
+      }
+      if (wasHidden) {
+        wasHidden = false;
+        resumePlayback();
+      }
+    };
+    const handlePageShow = () => resumePlayback();
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+      if (resumeTimer.current !== null) {
+        window.clearTimeout(resumeTimer.current);
+        resumeTimer.current = null;
+      }
+    };
+  }, [resumePlayback, started]);
 
   if (!settings.enabled || !videoId) return null;
 
@@ -104,19 +144,27 @@ function LiveStreamPanel({ settings }: { settings: LiveStreamSettings }) {
           <span className="live-stream-dot" aria-hidden="true" />
           <strong>Transmisión del sorteo</strong>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setStarted(false);
-            setMinimized(true);
-          }}
-        >
-          Minimizar
-        </button>
+        <div className="live-stream-actions">
+          {started && (
+            <button type="button" onClick={resumePlayback}>
+              Reanudar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setStarted(false);
+              setMinimized(true);
+            }}
+          >
+            Minimizar
+          </button>
+        </div>
       </header>
       {started ? (
         <div className="live-stream-frame">
           <iframe
+            key={`${videoId}-${playbackKey}`}
             src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0`}
             title="Transmisión en vivo del Bingo Virtual FECSUPOL"
             allow="autoplay; encrypted-media; picture-in-picture; web-share"

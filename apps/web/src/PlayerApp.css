@@ -179,6 +179,12 @@
   justify-content: space-between;
   margin-bottom: 0.7rem;
 }
+.live-stream-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
 .live-stream-panel button {
   border: 1px solid #b8c8c2;
   border-radius: 0.5rem;
