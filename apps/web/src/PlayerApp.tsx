@@ -53,6 +53,8 @@ class HttpError extends Error {
 }
 
 const columns = ["B", "I", "N", "G", "O"];
+const marksStorageKey = "fecs-bingo-marks-v2";
+const legacyMarksStorageKey = "fecs-bingo-marks";
 const gameStatusLabels: Record<string, string> = {
   DRAFT: "Borrador",
   ACTIVE: "Activo",
@@ -70,6 +72,10 @@ function wait(milliseconds: number) {
 
 function gameStatusLabel(status: string): string {
   return gameStatusLabels[status] ?? "Estado desconocido";
+}
+
+function cardMarksKey(gameId: string, cardId: string): string {
+  return `${gameId}:${cardId}`;
 }
 
 function LiveStreamPanel({ settings }: { settings: LiveStreamSettings }) {
@@ -211,8 +217,9 @@ function PlayerApp() {
   const [liveStream, setLiveStream] = useState<LiveStreamSettings | null>(null);
   const [marks, setMarks] = useState<Record<string, string[]>>(() => {
     try {
+      localStorage.removeItem(legacyMarksStorageKey);
       return JSON.parse(
-        localStorage.getItem("fecs-bingo-marks") ?? "{}",
+        localStorage.getItem(marksStorageKey) ?? "{}",
       ) as Record<string, string[]>;
     } catch {
       return {};
@@ -396,13 +403,14 @@ function PlayerApp() {
   );
   const hasNoGame = cards.length > 0 && cards.every((card) => !card.game);
 
-  const toggleMark = (cardId: string, cellId: string) => {
+  const toggleMark = (gameId: string, cardId: string, cellId: string) => {
     setMarks((current) => {
-      const cardMarks = new Set(current[cardId] ?? []);
+      const storageKey = cardMarksKey(gameId, cardId);
+      const cardMarks = new Set(current[storageKey] ?? []);
       if (cardMarks.has(cellId)) cardMarks.delete(cellId);
       else cardMarks.add(cellId);
-      const next = { ...current, [cardId]: [...cardMarks] };
-      localStorage.setItem("fecs-bingo-marks", JSON.stringify(next));
+      const next = { ...current, [storageKey]: [...cardMarks] };
+      localStorage.setItem(marksStorageKey, JSON.stringify(next));
       return next;
     });
   };
@@ -594,6 +602,7 @@ function PlayerApp() {
             const required = new Set(
               game.winningCells.map((cell) => `${cell.row}:${cell.column}`),
             );
+            const storedMarks = marks[cardMarksKey(game.id, card.id)] ?? [];
             const latest = game.drawnBalls.at(-1);
             const winner = game.finalWinnerId
               ? game.finalWinnerId === card.id
@@ -647,7 +656,7 @@ function PlayerApp() {
                         const marked =
                           cell.isFree ||
                           drawn.has(cell.number ?? -1) ||
-                          (marks[card.id] ?? []).includes(cell.id);
+                          storedMarks.includes(cell.id);
                         const target =
                           game.winningType !== "CUSTOM" ||
                           required.has(`${cell.row}:${cell.column}`);
@@ -656,7 +665,10 @@ function PlayerApp() {
                             type="button"
                             key={cell.id}
                             className={`${marked ? "marked" : ""} ${target ? "target" : ""}`}
-                            onClick={() => toggleMark(card.id, cell.id)}
+                            disabled={game.status !== "ACTIVE"}
+                            onClick={() =>
+                              toggleMark(game.id, card.id, cell.id)
+                            }
                           >
                             {cell.isFree ? "★" : cell.number}
                           </button>
