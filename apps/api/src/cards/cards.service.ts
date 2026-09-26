@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DrawsGateway } from '../draws/draws.gateway';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CARD_CATALOG_SIZE, generateCardCatalog } from './card-generator';
+import { assertCardAssignmentOpen } from './card-assignment-policy';
 import { GenerateCardsDto } from './dto/generate-cards.dto';
 
 @Injectable()
@@ -100,6 +101,7 @@ export class CardsService {
             `Cards already assigned: ${assigned.map((card) => card.number).join(', ')}`,
           );
         }
+        await assertCardAssignmentOpen(tx);
 
         const cards: Array<{ id: string; serial: string; number: number }> = [];
         for (const template of templates.sort((a, b) => a.number - b.number)) {
@@ -181,6 +183,7 @@ export class CardsService {
         const transferred = requested.filter(
           (template) => template.card && template.card.userId !== userId,
         );
+        const hasNewAssignments = requested.some((template) => !template.card);
         if (
           startedGames > 0 &&
           (removed.length > 0 || transferred.length > 0)
@@ -189,6 +192,7 @@ export class CardsService {
             'Assigned cards are permanently locked because a draw has already started',
           );
         }
+        if (hasNewAssignments) await assertCardAssignmentOpen(tx);
 
         for (const card of removed) {
           await tx.cardAssignmentAudit.create({

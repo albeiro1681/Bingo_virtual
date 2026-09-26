@@ -14,6 +14,7 @@ import { decryptSecret, encryptSecret } from '../auth/secret-box';
 import { UpdatePlayerDto } from './dto/update-player.dto';
 import { ImportPlayerRowDto } from './dto/import-players.dto';
 import { normalizeColombianPhone } from './colombian-phone';
+import { assertCardAssignmentOpen } from '../cards/card-assignment-policy';
 
 type ImportErrorCode =
   | 'NAME_REQUIRED'
@@ -381,6 +382,9 @@ export class UsersService {
               throw new ConflictException(
                 `Cartones ocupados: ${occupied.map((item) => item.number).join(', ')}.`,
               );
+            if (row.cardNumbers.length > 0) {
+              await assertCardAssignmentOpen(tx);
+            }
             const accessToken = generateAccessToken();
             const created = await tx.user.create({
               data: {

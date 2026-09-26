@@ -448,4 +448,71 @@ describe('UsersService', () => {
       cardNumbers: [8],
     });
   });
+
+  it('rejects imported card assignments while a game is active', async () => {
+    const create = jest.fn();
+    const tx = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create,
+      },
+      cardTemplate: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'template-8', number: 8, cells: [], card: null },
+          ]),
+      },
+      game: { findFirst: jest.fn().mockResolvedValue({ id: 'game-1' }) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const whatsapp = {
+      assignmentIncludesAccess: jest.fn().mockResolvedValue(false),
+    } as unknown as WhatsAppService;
+    const service = new UsersService(prisma, whatsapp, {} as ConfigService);
+    jest.spyOn(service, 'previewImport').mockResolvedValue({
+      validRows: [],
+      invalidRows: [],
+      rows: [
+        {
+          line: 2,
+          name: 'Jugador',
+          phone: '+573001234567',
+          cardNumbers: [8],
+          valid: true,
+          errors: [],
+        },
+      ],
+      summary: {
+        total: 1,
+        valid: 1,
+        invalid: 0,
+        validUsers: 1,
+        invalidUsers: 0,
+        cardsToAssign: 1,
+      },
+    });
+
+    await expect(
+      service.importPlayers([
+        { line: 2, name: 'Jugador', phone: '3001234567', cardNumbers: [8] },
+      ]),
+    ).resolves.toMatchObject({
+      imported: 0,
+      failed: 1,
+      results: [
+        {
+          success: false,
+          errors: [
+            'No se pueden asignar cartones mientras haya un sorteo activo o en desempate',
+          ],
+        },
+      ],
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
 });
